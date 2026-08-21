@@ -19,7 +19,7 @@ python3 -m http.server 8080
 
 | Provider | Get key | Free models |
 |---|---|---|
-| Google AI Studio | https://aistudio.google.com/apikey | `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.0-flash` |
+| Google AI Studio | https://aistudio.google.com/apikey | `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` |
 | OpenRouter | https://openrouter.ai/keys | `meta-llama/llama-3.3-70b-instruct:free`, `deepseek/deepseek-chat-v3.0324:free`, `google/gemini-2.0-flash-exp:free` |
 
 Paste the key in the app via **⚙️ API key**. It is stored only in your browser's localStorage and sent only to the provider you chose. Free tiers have daily rate limits.

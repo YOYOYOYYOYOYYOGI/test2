@@ -31,7 +31,7 @@ const AGENTS = [
 const PROVIDERS = {
   google: {
     label: "Google AI Studio (Gemini) — 100% free",
-    defaultModel: "gemini-2.5-flash",
+    defaultModel: "gemini-3.6-flash",
     keyUrl: "https://aistudio.google.com/apikey",
   },
   openrouter: {
@@ -62,11 +62,17 @@ const bannerEl = $("#keyBanner");
 
 // ---------- helpers ----------
 function loadSettings() {
+  let s = {};
   try {
-    return JSON.parse(localStorage.getItem(LS_SETTINGS)) || {};
+    s = JSON.parse(localStorage.getItem(LS_SETTINGS)) || {};
   } catch {
-    return {};
+    s = {};
   }
+  // auto-upgrade old/deprecated Google model names (e.g. gemini-2.5-flash)
+  if (s.models && /^gemini-(1\.|2\.|3\.[0])/.test(s.models.google || "")) {
+    s.models.google = PROVIDERS.google.defaultModel;
+  }
+  return s;
 }
 function saveSettings() {
   localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
