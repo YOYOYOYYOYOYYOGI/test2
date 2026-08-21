@@ -1,0 +1,13 @@
+{
+  "name": "flash-agent-starter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small Gemini Flash agent with ephemeral, server-side API key sessions.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

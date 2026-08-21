@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flash Agent</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="sidebar">
+      <a class="brand" href="/"><span class="spark">✦</span> Flash Agent</a>
+      <div class="connection-card" id="connectionCard">
+        <p class="eyebrow">YOUR MODEL</p>
+        <div class="status"><span class="dot"></span><span id="connectionStatus">Not connected</span></div>
+        <p class="muted" id="modelHint">Add your Google AI Studio key to begin.</p>
+        <button class="secondary hidden" id="disconnectBtn">Disconnect key</button>
+      </div>
+      <div class="how">
+        <p class="eyebrow">HOW IT WORKS</p>
+        <ol><li>You provide your own Gemini API key.</li><li>We verify available models.</li><li>Flash Agent starts with a compatible Flash model.</li></ol>
+      </div>
+      <p class="privacy">Your key is kept only in this server's temporary session and is never stored in this browser.</p>
+    </section>
+
+    <section class="workspace">
+      <header><div><p class="eyebrow">PERSONAL AI WORKSPACE</p><h1>Ask. Build. Move faster.</h1></div><div class="model-picker hidden" id="modelPickerWrap"><label for="modelPicker">Model</label><select id="modelPicker"></select></div></header>
+      <div class="key-panel" id="keyPanel">
+        <div class="key-icon">⌁</div>
+        <div><h2>Connect Gemini</h2><p>Paste a Google AI Studio API key. We’ll check it, find the models it can use, and select Flash automatically.</p></div>
+        <form id="connectForm"><label for="apiKey">Google AI Studio API key</label><div class="key-row"><input id="apiKey" type="password" autocomplete="off" placeholder="AIza..." required /><button type="submit">Verify & start <span>→</span></button></div><p class="form-note">The key goes to this app’s server for verification. It is not saved to local storage or a database.</p></form>
+        <p class="error hidden" id="connectError" role="alert"></p>
+      </div>
+      <div class="chat hidden" id="chat">
+        <div class="messages" id="messages" aria-live="polite"><article class="message assistant"><div class="avatar">✦</div><div class="bubble">Hi, I’m Flash Agent. Your API key is connected and I’m ready to help. What would you like to work on?</div></article></div>
+        <form class="composer" id="chatForm"><textarea id="message" rows="1" maxlength="10000" placeholder="Message Flash Agent…" aria-label="Message Flash Agent"></textarea><button id="sendBtn" type="submit" aria-label="Send message">↑</button></form>
+        <p class="disclaimer">AI can make mistakes. Review important answers.</p>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
