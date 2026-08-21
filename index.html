@@ -47,20 +47,31 @@
 
     <div class="wizard-step-head">
       <h2>🔑 Start your free AI agents</h2>
-      <p class="wizard-sub">2 options — both 100% free, no credit card, no payment ever.</p>
+      <p class="wizard-sub">3 options — all 100% free forever. No credit card, no payment ever.</p>
     </div>
 
-    <!-- OPTION A: demo -->
+    <!-- OPTION A: local unlimited -->
+    <div class="option-card local-card">
+      <div class="option-title">🧠 Option A — Unlimited Local AI <span class="pill purple">no key · no limits · free forever</span></div>
+      <p>A small AI runs <b>inside your browser</b> — no key, no account, no daily limit, works offline after first load. First use downloads the model once (see sizes). Best on desktop Chrome/Edge. Answers are simpler than cloud AI.</p>
+      <label class="field">
+        <span>Local model size</span>
+        <select id="localModelInput"></select>
+      </label>
+      <button id="startLocalBtn" class="primary-btn wide">🧠 Start Unlimited Local AI</button>
+    </div>
+
+    <!-- OPTION B: demo -->
     <div class="option-card demo-card">
-      <div class="option-title">🎭 Option A — Demo mode <span class="pill">instant, no key</span></div>
-      <p>Agents reply right now with simple simulated answers. Good for testing &amp; fun. Upgrade to a real key anytime.</p>
+      <div class="option-title">🎭 Option B — Demo mode <span class="pill">instant, no key</span></div>
+      <p>Agents reply right now with simple simulated answers. Good for testing &amp; fun. Upgrade anytime.</p>
       <button id="startDemoBtn" class="primary-btn wide">🎭 Start Demo Mode now</button>
     </div>
 
-    <!-- OPTION B: real AI -->
+    <!-- OPTION C: real cloud AI -->
     <div class="option-card">
-      <div class="option-title">⚡ Option B — Real AI answers <span class="pill green">also free</span></div>
-      <p>Get a free API key (2 min), paste it below, I verify it, then chat starts for real.</p>
+      <div class="option-title">⚡ Option C — Real cloud AI + 🎨 images <span class="pill green">also free (daily limits)</span></div>
+      <p>Strongest answers + <b>real AI images (~500/day free)</b>. Needs a free Google API key, verified first.</p>
 
       <ol class="steps">
         <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → sign in with Google → <b>Create API key</b> → copy it</li>
@@ -88,8 +99,6 @@
           <option value="gemini-3.5-flash">Chat — Google, free</option>
           <option value="gemini-2.5-flash-image">🎨 Image — free, ~500/day</option>
           <option value="gemini-3.1-flash-image-preview">🎨 Image — free preview</option>
-          <option value="veo-3.1-fast-generate-001">🎬 Video — needs paid key</option>
-          <option value="veo-3.1-generate-001">🎬 Video quality — needs paid key</option>
           <option value="meta-llama/llama-3.3-70b-instruct:free">OpenRouter — free</option>
           <option value="deepseek/deepseek-chat-v3.0324:free">OpenRouter — free</option>
         </datalist>
@@ -98,11 +107,6 @@
       <label class="field">
         <span>🎨 Image creation model (free with Google key)</span>
         <input id="imageModelInput" type="text" list="modelList" placeholder="gemini-2.5-flash-image" autocomplete="off" />
-      </label>
-
-      <label class="field">
-        <span>🎬 Video creation model (Veo — paid API; free website: labs.google/flow)</span>
-        <input id="videoModelInput" type="text" list="modelList" placeholder="veo-3.1-fast-generate-001" autocomplete="off" />
       </label>
 
       <div id="verifyStatus" class="verify-status hidden"></div>
@@ -127,6 +131,6 @@
   </div>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

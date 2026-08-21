@@ -76,21 +76,55 @@ const AGENTS = [
       "Professional photography and digital art. Enrich the user's idea into a vivid, " +
       "detailed image prompt (lighting, camera, style, composition) and generate it.",
   },
-  {
-    id: "motion-magic",
-    name: "Motion Magic",
-    tag: "🎬 CREATES VIDEOS — needs paid key",
-    kind: "video",
-    gradient: "linear-gradient(135deg,#0f766e,#0ea5e9)",
-    systemPrompt:
-      "Cinematic short video clips. Enrich the user's idea into a dynamic video prompt " +
-      "(camera movement, scene, mood, lighting) and generate it.",
-  },
 ];
 
-// default media models (editable in Setup)
-const IMAGE_MODEL_DEFAULT = "gemini-2.5-flash-image"; // free ~500/day
-const VIDEO_MODEL_DEFAULT = "veo-3.1-fast-generate-001"; // paid tier only
+// free image model (~500 images/day with a free Google key)
+const IMAGE_MODEL_DEFAULT = "gemini-2.5-flash-image";
+
+// ---------- LOCAL UNLIMITED AI (runs inside the browser, no key, no limits) ----------
+const LOCAL_MODELS = [
+  { id: "Llama-3.2-1B-Instruct-q4f16_1c", label: "Llama 3.2 1B — fast & small (~560 MB)" },
+  { id: "Qwen2.5-0.5B-Instruct-q4f16_1c", label: "Qwen 2.5 0.5B — smallest (~350 MB)" },
+  { id: "Llama-3.2-3B-Instruct-q4f16_1c", label: "Llama 3.2 3B — smarter, slower (~1.6 GB)" },
+];
+let localEngine = null;
+let localLoading = null;
+
+async function ensureLocalEngine(onProgress) {
+  if (localEngine) return localEngine;
+  if (!navigator.gpu) {
+    throw new Error(
+      "This browser cannot run Local AI (needs WebGPU — use desktop Chrome or Edge, or the latest Chrome on Android). " +
+      "You can still use Demo mode or a free Google key."
+    );
+  }
+  if (!localLoading) {
+    localLoading = (async () => {
+      onProgress && onProgress("📥 Downloading the AI brain (one time only)…");
+      const webllm = await import("https://esm.run/@mlc-ai/web-llm");
+      const model = settings.localModel || LOCAL_MODELS[0].id;
+      const engine = await webllm.CreateMLCEngine(model, {
+        initProgressCallback: (p) =>
+          onProgress && onProgress("🧠 " + (p.text || "loading…") + " " + Math.round((p.progress || 0) * 100) + "%"),
+      });
+      localEngine = engine;
+      return engine;
+    })();
+    localLoading.catch(() => { localLoading = null; });
+  }
+  return localLoading;
+}
+
+async function localChat(agent, history, onStatus) {
+  const engine = await ensureLocalEngine(onStatus);
+  onStatus && onStatus("🧠 Thinking on your device…");
+  const messages = [
+    { role: "system", content: agent.systemPrompt + " Keep answers short and simple (you are a small on-device model)." },
+    ...history.slice(-8).map((m) => ({ role: m.role, content: m.text })),
+  ];
+  const reply = await engine.chat.completions.create({ messages, stream: false });
+  return reply.choices[0]?.message?.content || "(no answer)";
+}
 
 // ---------- PROVIDERS (free tiers) ----------
 const PROVIDERS = {
@@ -218,8 +252,6 @@ function renderChat() {
     let helloText;
     if (a.kind === "image") {
       helloText = `🎨 I'm <b></b> — I <b>CREATE images</b>! Describe anything:<br><i>"luxury night cream jar on black marble, gold lid, studio lighting"</i><br>and I'll paint it (~500 free images/day with your free key).`;
-    } else if (a.kind === "video") {
-      helloText = `🎬 I'm <b></b> — I <b>CREATE short videos</b>!<br>⚠️ Video needs a <b>paid</b> Gemini key. Free videos instead → <a href="https://labs.google/flow" target="_blank" rel="noopener">labs.google/flow</a>`;
     } else {
       helloText = `👋 Hi, I'm <b></b> — ${a.tag.toLowerCase()}.<br>Ask me anything!`;
     }
@@ -276,16 +308,20 @@ function scrollDown() { chatEl.scrollTop = chatEl.scrollHeight; }
 // ---------- mode ui ----------
 function refreshMode() {
   const inDemo = Boolean(settings.demo);
-  badgeEl.classList.toggle("hidden", !inDemo);
+  const inLocal = Boolean(settings.local);
+  badgeEl.classList.toggle("hidden", !inDemo && !inLocal);
+  badgeEl.textContent = inDemo ? "🎭 DEMO" : "🧠 LOCAL";
   if (inDemo) {
     bannerEl.className = "banner demo";
     bannerEl.innerHTML =
       "🎭 <b>Demo mode</b> — answers are simulated, not real AI. " +
-      'Click <b>🔑 Setup</b> → <b>Verify &amp; Start</b> to get real answers (still free).';
+      'Click <b>🔑 Setup</b> for <b>🧠 Unlimited Local AI</b> (no key) or real answers with a free Google key.';
+  } else if (inLocal) {
+    bannerEl.className = "banner ok";
+    bannerEl.innerHTML =
+      "🧠 <b>Local AI</b> — unlimited &amp; free forever, running inside your browser. No key, no limits, works offline after first load. (Small model: keep questions simple.)";
   } else if (settings.verified && settings.apiKey) {
-    const model = (settings.models && settings.models[settings.provider]) || PROVIDERS[settings.provider].defaultModel;
     bannerEl.className = "banner ok hidden";
-    bannerEl.innerHTML = "✓";
   } else {
     bannerEl.className = "banner hidden";
   }
@@ -391,41 +427,6 @@ async function googleImageCall({ apiKey, model, prompt, signal }) {
   return { src, text: txt };
 }
 
-// =====================================================
-// VIDEO GENERATION (Veo — PAID API tier only)
-// =====================================================
-async function veoGenerate({ apiKey, model, prompt, onStatus }) {
-  const base = "https://generativelanguage.googleapis.com/v1beta";
-  const start = await fetch(base + "/models/" + encodeURIComponent(model) + ":predictLongRunning?key=" + encodeURIComponent(apiKey), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      instances: [{ prompt }],
-      parameters: { aspectRatio: "16:9" },
-    }),
-  });
-  const startData = await start.json().catch(() => ({}));
-  if (!start.ok) throw new Error(startData?.error?.message || "Veo start failed " + start.status);
-  if (!startData.name) throw new Error("Veo did not return a job id.");
-  for (let i = 0; i < 26; i++) {
-    await new Promise((r) => setTimeout(r, 10000));
-    if (onStatus) onStatus("🎬 Rendering video… ~" + ((i + 1) * 10) + "s (Veo usually takes 1–3 minutes)");
-    const poll = await fetch(base + "/" + startData.name + "?key=" + encodeURIComponent(apiKey));
-    const pd = await poll.json().catch(() => ({}));
-    if (pd.error) throw new Error(pd.error.message);
-    if (pd.done) {
-      const uri = pd.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri
-        || pd.response?.generatedSamples?.[0]?.video?.uri;
-      if (!uri) throw new Error("Video finished but no file was returned (prompt may have been filtered).");
-      const fileRes = await fetch(uri.includes("?") ? uri + "&key=" + apiKey : uri + "?key=" + apiKey);
-      if (!fileRes.ok) throw new Error("Could not download the video (" + fileRes.status + ").");
-      const blob = await fileRes.blob();
-      return URL.createObjectURL(blob);
-    }
-  }
-  throw new Error("Video took longer than 4 minutes. Try a shorter, simpler prompt.");
-}
-
 // demo-mode "image": fun generated SVG art (works offline, no key)
 function demoImageSvg(prompt) {
   const h1 = Math.floor(Math.random() * 360), h2 = (h1 + 60 + Math.floor(Math.random() * 160)) % 360;
@@ -513,7 +514,7 @@ async function send() {
 
   const agent = activeAgent();
 
-  if (!settings.demo && !(settings.verified && settings.apiKey)) {
+  if (!settings.demo && !settings.local && !(settings.verified && settings.apiKey)) {
     openWizard();
     return;
   }
@@ -537,44 +538,44 @@ async function send() {
           text: "🎭 Demo art (not real AI). **\u201C" + text.slice(0, 80) + "\u201D**",
           imageSrc: demoImageSvg(text),
         });
-      } else if (agent.kind === "video") {
-        await new Promise((r) => setTimeout(r, 700));
-        appendMessage({
-          role: "agent",
-          text: "🎬 Demo mode cannot render video.\n\n**Good news — Veo 3.1 is FREE for everyone** on Google's website (no API key needed):\n👉 labs.google/flow (~50 free credits every day)\n\nFor video *inside this app* you need a paid Gemini API key with Veo enabled — then I render real videos here.",
-        });
       } else {
         await new Promise((r) => setTimeout(r, 500 + Math.random() * 900));
         appendMessage({ role: "agent", text: demoReply(agent, text) });
       }
-    } else if (agent.kind === "image" || agent.kind === "video") {
-      if (settings.provider === "openrouter") {
-        throw new Error("Image/video creation needs the Google provider. Open 🔑 Setup → choose 'Google AI Studio' → Verify again.");
-      }
-      const model = (settings.models && settings.models[agent.kind]) ||
-        (agent.kind === "image" ? IMAGE_MODEL_DEFAULT : VIDEO_MODEL_DEFAULT);
-
+    } else if (settings.local) {
+      // ---- UNLIMITED free local AI (in-browser) ----
       if (agent.kind === "image") {
-        setTyping("🎨 Painting your image… (10–30 seconds)");
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 120000);
-        try {
-          const out = await googleImageCall({
-            apiKey: settings.apiKey, model,
-            prompt: agent.systemPrompt + "\n\nCreate this image: " + text,
-            signal: controller.signal,
-          });
-          appendMessage({ role: "agent", text: out.text || "🖼️ Here's your image!", imageSrc: out.src });
-        } finally { clearTimeout(t); }
-      } else {
-        setTyping("🎬 Starting video job…");
-        const src = await veoGenerate({
-          apiKey: settings.apiKey, model,
-          prompt: agent.systemPrompt + "\n\nCreate this video: " + text,
-          onStatus: setTyping,
+        setTyping("🎭 Local AI is text-only — making demo art instead…");
+        await new Promise((r) => setTimeout(r, 800));
+        appendMessage({
+          role: "agent",
+          text: "🎭 Local AI models can't create real images.\n\n**For real FREE images (~500/day):** 🔑 Setup → verify a free Google key → ask me again!\n\nMeanwhile, here's demo art for **\u201C" + text.slice(0, 60) + "\u201D**:",
+          imageSrc: demoImageSvg(text),
         });
-        appendMessage({ role: "agent", text: "🎬 Your video is ready — press play!", videoSrc: src });
+      } else {
+        const history = loadChat(activeAgentId)
+          .filter((m) => !m.error)
+          .slice(-8)
+          .map((m) => ({ role: m.role, text: m.text }));
+        const answer = await localChat(agent, history, setTyping);
+        appendMessage({ role: "agent", text: answer });
       }
+    } else if (agent.kind === "image") {
+      if (settings.provider === "openrouter") {
+        throw new Error("Image creation needs the Google provider. Open 🔑 Setup → choose 'Google AI Studio' → Verify again.");
+      }
+      const model = (settings.models && settings.models.image) || IMAGE_MODEL_DEFAULT;
+      setTyping("🎨 Painting your image… (10–30 seconds)");
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 120000);
+      try {
+        const out = await googleImageCall({
+          apiKey: settings.apiKey, model,
+          prompt: agent.systemPrompt + "\n\nCreate this image: " + text,
+          signal: controller.signal,
+        });
+        appendMessage({ role: "agent", text: out.text || "🖼️ Here's your image!", imageSrc: out.src });
+      } finally { clearTimeout(t); }
     } else {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 90000);
@@ -598,16 +599,12 @@ async function send() {
     }
   } catch (err) {
     const m = (err.message || "").toLowerCase();
-    let extra = "";
-    if (activeAgent().kind === "video" && (m.includes("billing") || m.includes("paid") || m.includes("permission") || m.includes("403") || m.includes("429"))) {
-      extra = "\n\n💡 Remember: Veo video API is **paid-only** (no free tier). Free video → labs.google/flow";
-    }
     const msg = err.name === "AbortError"
       ? "⏱ Took too long — try again or pick another model in Setup."
       : "⚠️ " + (err.message || "Something went wrong.");
     appendMessage({
       role: "agent", error: true,
-      text: msg + extra + "\nOpen 🔑 Setup to re-verify your key, change the model, or switch to Demo Mode.",
+      text: msg + "\nOpen 🔑 Setup to change mode (Demo / Local unlimited / free Google key).",
     });
   } finally {
     typingEl.classList.add("hidden");
@@ -639,8 +636,15 @@ function openWizard() {
     PROVIDERS[providerSelect.value].defaultModel;
   $("#imageModelInput").value =
     (settings.models && settings.models.image) || IMAGE_MODEL_DEFAULT;
-  $("#videoModelInput").value =
-    (settings.models && settings.models.video) || VIDEO_MODEL_DEFAULT;
+  const localSel = $("#localModelInput");
+  if (!localSel.options.length) {
+    LOCAL_MODELS.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.id; o.textContent = m.label;
+      localSel.appendChild(o);
+    });
+  }
+  localSel.value = settings.localModel || LOCAL_MODELS[0].id;
   updateHelp();
   verifyStatus.className = "verify-status hidden";
   wizard.classList.remove("hidden");
@@ -669,10 +673,27 @@ providerSelect.addEventListener("change", () => {
 
 // ---- demo mode ----
 $("#startDemoBtn").addEventListener("click", () => {
-  settings.demo = true;
+  settings = { demo: true };
   saveSettings();
   refreshMode();
   closeWizard();
+  inputEl.focus();
+});
+
+// ---- UNLIMITED local mode ----
+$("#startLocalBtn").addEventListener("click", () => {
+  settings = {
+    local: true,
+    localModel: $("#localModelInput").value || LOCAL_MODELS[0].id,
+  };
+  saveSettings();
+  refreshMode();
+  closeWizard();
+  appendMessage({
+    role: "agent",
+    text: "🧠 **Local AI starting!** The model downloads once into your browser (350 MB – 1.6 GB). " +
+      "After that: unlimited, free, even offline. Send your first message to begin the download.",
+  });
   inputEl.focus();
 });
 
@@ -698,12 +719,12 @@ verifyBtn.addEventListener("click", async () => {
       provider,
       apiKey,
       demo: false,
+      local: false,
       verified: true,
       models: {
         ...(settings.models || {}),
         [provider]: model,
         image: ($("#imageModelInput").value.trim()) || IMAGE_MODEL_DEFAULT,
-        video: ($("#videoModelInput").value.trim()) || VIDEO_MODEL_DEFAULT,
       },
     };
     saveSettings();
@@ -768,5 +789,5 @@ refreshMode();
 autoGrow();
 
 // first visit without setup → open wizard automatically
-if (!settings.demo && !(settings.verified && settings.apiKey)) openWizard();
+if (!settings.demo && !settings.local && !(settings.verified && settings.apiKey)) openWizard();
 else inputEl.focus();

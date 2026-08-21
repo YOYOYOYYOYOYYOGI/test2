@@ -147,6 +147,8 @@ a { color: #93c5fd; }
 }
 .pill.green { background: #052e16; color: #86efac; }
 .demo-card { border-color: #7c2d12; }
+.local-card { border-color: #6d28d9; }
+.pill.purple { background: #2e1065; color: #c4b5fd; }
 
 .steps { margin: 4px 0 12px 18px; }
 .steps li { margin-bottom: 5px; }

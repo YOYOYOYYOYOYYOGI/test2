@@ -1,6 +1,6 @@
 # AI Agents Chat ⚡
 
-A self-hosted mini "arena" — 8 free agents (6 chat + image creator + video creator) using free-tier API keys:
+A self-hosted mini "arena" — 7 agents (6 chat + image creator). **Everything here is free. No paid agents.**
 
 | Agent | Style |
 |---|---|
@@ -11,9 +11,18 @@ A self-hosted mini "arena" — 8 free agents (6 chat + image creator + video cre
 | 🟡 Llama Legend | Fun — casual chat with jokes |
 | ⚪ Grok Spark | Bold — witty, straight talk |
 | 🎨 **Dream Brush** | **CREATES IMAGES** — free (~500/day) via `gemini-2.5-flash-image` |
-| 🎬 **Motion Magic** | **CREATES VIDEOS** — Veo API (paid only; free website: labs.google/flow) |
 
-**Flow:** open the site → Setup wizard appears → start **Demo mode** (instant, no key) **or** paste a free API key → **Verify & Start** (the key is tested live) → chat, create images, etc.
+## 3 free modes (Setup wizard)
+
+| Mode | Key? | Limits | Notes |
+|---|---|---|---|
+| 🧠 **Local AI** | none | **UNLIMITED** | small AI runs in your browser (WebLLM/WebGPU); one-time download 350 MB–1.6 GB; desktop Chrome/Edge best |
+| 🎭 Demo | none | unlimited | simulated answers (math, jokes, chat) |
+| ⚡ Cloud + 🎨 images | free Google key | daily limits | strongest answers + real images (~500/day free) |
+
+Free key: https://aistudio.google.com/apikey — paste in Setup → **Verify & Start** (key is tested live).
+
+Video generation was removed on purpose: no free video API exists (Veo is paid-only; free videos at labs.google/flow).
 
 > Note: the agent **names are personas**. Real Claude Opus is a paid Anthropic model — here each name is a style/persona running on whichever free model you choose (e.g. Gemini Flash or Llama). Rename or add anything you like.
 
