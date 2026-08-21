@@ -66,7 +66,31 @@ const AGENTS = [
       "Give straight, no-fluff answers with a spark of humor. " +
       "Be direct and honest — witty, never mean.",
   },
+  {
+    id: "dream-brush",
+    name: "Dream Brush",
+    tag: "🎨 CREATES IMAGES from words — free",
+    kind: "image",
+    gradient: "linear-gradient(135deg,#ec4899,#8b5cf6)",
+    systemPrompt:
+      "Professional photography and digital art. Enrich the user's idea into a vivid, " +
+      "detailed image prompt (lighting, camera, style, composition) and generate it.",
+  },
+  {
+    id: "motion-magic",
+    name: "Motion Magic",
+    tag: "🎬 CREATES VIDEOS — needs paid key",
+    kind: "video",
+    gradient: "linear-gradient(135deg,#0f766e,#0ea5e9)",
+    systemPrompt:
+      "Cinematic short video clips. Enrich the user's idea into a dynamic video prompt " +
+      "(camera movement, scene, mood, lighting) and generate it.",
+  },
 ];
+
+// default media models (editable in Setup)
+const IMAGE_MODEL_DEFAULT = "gemini-2.5-flash-image"; // free ~500/day
+const VIDEO_MODEL_DEFAULT = "veo-3.1-fast-generate-001"; // paid tier only
 
 // ---------- PROVIDERS (free tiers) ----------
 const PROVIDERS = {
@@ -120,7 +144,9 @@ function loadChat(id) {
   return chats[id];
 }
 function persistChat(id) {
-  localStorage.setItem(LS_CHAT(id), JSON.stringify(chats[id]));
+  // media (imageSrc/videoSrc) is too big for localStorage — keep text only
+  const clean = chats[id].map((m) => ({ role: m.role, text: m.text, error: m.error || undefined }));
+  try { localStorage.setItem(LS_CHAT(id), JSON.stringify(clean)); } catch {}
 }
 function activeAgent() {
   return AGENTS.find((a) => a.id === activeAgentId) || AGENTS[0];
@@ -147,6 +173,7 @@ function md(text) {
   out = out
     .replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>')
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
     .replace(/\n/g, "<br>");
   out = out.replace(/__PRE(\d+)__/g, (m, i) => `<pre><code>${pres[Number(i)]}</code></pre>`);
   return out;
@@ -188,8 +215,17 @@ function renderChat() {
     hello.appendChild(avatarEl(a));
     const b = document.createElement("div");
     b.className = "bubble";
-    b.innerHTML = `👋 Hi, I'm <b></b> — ${a.tag.toLowerCase()}.<br>Ask me anything!`;
-    b.querySelector("b").textContent = a.name;
+    let helloText;
+    if (a.kind === "image") {
+      helloText = `🎨 I'm <b></b> — I <b>CREATE images</b>! Describe anything:<br><i>"luxury night cream jar on black marble, gold lid, studio lighting"</i><br>and I'll paint it (~500 free images/day with your free key).`;
+    } else if (a.kind === "video") {
+      helloText = `🎬 I'm <b></b> — I <b>CREATE short videos</b>!<br>⚠️ Video needs a <b>paid</b> Gemini key. Free videos instead → <a href="https://labs.google/flow" target="_blank" rel="noopener">labs.google/flow</a>`;
+    } else {
+      helloText = `👋 Hi, I'm <b></b> — ${a.tag.toLowerCase()}.<br>Ask me anything!`;
+    }
+    b.innerHTML = helloText;
+    const nameEl = b.querySelector("b");
+    if (nameEl) nameEl.textContent = a.name;
     hello.appendChild(b);
     chatEl.appendChild(hello);
   }
@@ -207,8 +243,27 @@ function messageEl(m) {
   bubble.className = "bubble";
   if (m.role === "user") bubble.textContent = m.text;
   else bubble.innerHTML = m.error ? escapeHtml(m.text) : md(m.text);
+  if (m.imageSrc) {
+    const img = document.createElement("img");
+    img.src = m.imageSrc; img.alt = "AI generated image";
+    bubble.appendChild(document.createElement("br"));
+    bubble.appendChild(img);
+    bubble.appendChild(saveLink(m.imageSrc, "image.png", "⬇ Save image"));
+  }
+  if (m.videoSrc) {
+    const v = document.createElement("video");
+    v.src = m.videoSrc; v.controls = true; v.playsInline = true;
+    bubble.appendChild(v);
+    bubble.appendChild(saveLink(m.videoSrc, "video.mp4", "⬇ Save video"));
+  }
   row.appendChild(bubble);
   return row;
+}
+function saveLink(href, name, label) {
+  const a = document.createElement("a");
+  a.href = href; a.download = name; a.textContent = label;
+  a.className = "save-link";
+  return a;
 }
 function appendMessage(m) {
   loadChat(activeAgentId).push(m);
@@ -311,6 +366,98 @@ async function verifyKey(provider, apiKey, model) {
 }
 
 // =====================================================
+// IMAGE GENERATION (free: gemini-2.5-flash-image, ~500/day)
+// =====================================================
+async function googleImageCall({ apiKey, model, prompt, signal }) {
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+    encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(apiKey);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message || "Image API error " + res.status);
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const imgPart = parts.find((p) => p.inlineData);
+  const txt = parts.find((p) => p.text)?.text || "";
+  if (!imgPart) throw new Error("No image returned (prompt may have been blocked). " + txt);
+  const src = "data:" + (imgPart.inlineData.mimeType || "image/png") + ";base64," + imgPart.inlineData.data;
+  return { src, text: txt };
+}
+
+// =====================================================
+// VIDEO GENERATION (Veo — PAID API tier only)
+// =====================================================
+async function veoGenerate({ apiKey, model, prompt, onStatus }) {
+  const base = "https://generativelanguage.googleapis.com/v1beta";
+  const start = await fetch(base + "/models/" + encodeURIComponent(model) + ":predictLongRunning?key=" + encodeURIComponent(apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instances: [{ prompt }],
+      parameters: { aspectRatio: "16:9" },
+    }),
+  });
+  const startData = await start.json().catch(() => ({}));
+  if (!start.ok) throw new Error(startData?.error?.message || "Veo start failed " + start.status);
+  if (!startData.name) throw new Error("Veo did not return a job id.");
+  for (let i = 0; i < 26; i++) {
+    await new Promise((r) => setTimeout(r, 10000));
+    if (onStatus) onStatus("🎬 Rendering video… ~" + ((i + 1) * 10) + "s (Veo usually takes 1–3 minutes)");
+    const poll = await fetch(base + "/" + startData.name + "?key=" + encodeURIComponent(apiKey));
+    const pd = await poll.json().catch(() => ({}));
+    if (pd.error) throw new Error(pd.error.message);
+    if (pd.done) {
+      const uri = pd.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri
+        || pd.response?.generatedSamples?.[0]?.video?.uri;
+      if (!uri) throw new Error("Video finished but no file was returned (prompt may have been filtered).");
+      const fileRes = await fetch(uri.includes("?") ? uri + "&key=" + apiKey : uri + "?key=" + apiKey);
+      if (!fileRes.ok) throw new Error("Could not download the video (" + fileRes.status + ").");
+      const blob = await fileRes.blob();
+      return URL.createObjectURL(blob);
+    }
+  }
+  throw new Error("Video took longer than 4 minutes. Try a shorter, simpler prompt.");
+}
+
+// demo-mode "image": fun generated SVG art (works offline, no key)
+function demoImageSvg(prompt) {
+  const h1 = Math.floor(Math.random() * 360), h2 = (h1 + 60 + Math.floor(Math.random() * 160)) % 360;
+  const esc = escapeHtml(prompt || "demo art").replace(/'/g, "");
+  const words = esc.split(/\s+/); const lines = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > 34) { lines.push(line.trim()); line = w; if (lines.length >= 3) break; }
+    else line += " " + w;
+  }
+  if (lines.length < 3 && line.trim()) lines.push(line.trim());
+  const textSvg = lines.map((l, i) =>
+    `<text x='384' y='${560 + i * 44}' font-family='Segoe UI,sans-serif' font-size='30' fill='rgba(255,255,255,.92)' text-anchor='middle'>${l}</text>`
+  ).join("");
+  const circles = Array.from({ length: 6 }, (_, i) => {
+    const cx = 100 + Math.random() * 568, cy = 100 + Math.random() * 300, r = 40 + Math.random() * 110;
+    return `<circle cx='${cx.toFixed(0)}' cy='${cy.toFixed(0)}' r='${r.toFixed(0)}' fill='rgba(255,255,255,0.06)'/>`;
+  }).join("");
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='768' height='960'>` +
+    `<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>` +
+    `<stop offset='0%' stop-color='hsl(${h1},70%,45%)'/><stop offset='100%' stop-color='hsl(${h2},70%,30%)'/>` +
+    `</linearGradient></defs>` +
+    `<rect width='768' height='960' fill='url(#g)'/>${circles}` +
+    `<text x='384' y='500' font-family='Segoe UI,sans-serif' font-size='34' font-weight='bold' fill='white' text-anchor='middle'>🎭 DEMO ART</text>` +
+    textSvg +
+    `<text x='384' y='760' font-family='Segoe UI,sans-serif' font-size='22' fill='rgba(255,255,255,.75)' text-anchor='middle'>Add a free API key in 🔑 Setup for REAL AI images</text>` +
+    `</svg>`;
+  return "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+// =====================================================
 // DEMO MODE — simulated answers, no key needed
 // =====================================================
 const JOKES = [
@@ -364,6 +511,8 @@ async function send() {
   const text = inputEl.value.trim();
   if (!text || busy) return;
 
+  const agent = activeAgent();
+
   if (!settings.demo && !(settings.verified && settings.apiKey)) {
     openWizard();
     return;
@@ -375,19 +524,62 @@ async function send() {
   autoGrow();
   appendMessage({ role: "user", text });
   typingEl.classList.remove("hidden");
+  setTyping("");
   scrollDown();
 
   try {
     if (settings.demo) {
-      // simulate thinking
-      await new Promise((r) => setTimeout(r, 500 + Math.random() * 900));
-      appendMessage({ role: "agent", text: demoReply(activeAgent(), text) });
+      if (agent.kind === "image") {
+        setTyping("🎭 Painting demo art…");
+        await new Promise((r) => setTimeout(r, 900));
+        appendMessage({
+          role: "agent",
+          text: "🎭 Demo art (not real AI). **\u201C" + text.slice(0, 80) + "\u201D**",
+          imageSrc: demoImageSvg(text),
+        });
+      } else if (agent.kind === "video") {
+        await new Promise((r) => setTimeout(r, 700));
+        appendMessage({
+          role: "agent",
+          text: "🎬 Demo mode cannot render video.\n\n**Good news — Veo 3.1 is FREE for everyone** on Google's website (no API key needed):\n👉 labs.google/flow (~50 free credits every day)\n\nFor video *inside this app* you need a paid Gemini API key with Veo enabled — then I render real videos here.",
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 500 + Math.random() * 900));
+        appendMessage({ role: "agent", text: demoReply(agent, text) });
+      }
+    } else if (agent.kind === "image" || agent.kind === "video") {
+      if (settings.provider === "openrouter") {
+        throw new Error("Image/video creation needs the Google provider. Open 🔑 Setup → choose 'Google AI Studio' → Verify again.");
+      }
+      const model = (settings.models && settings.models[agent.kind]) ||
+        (agent.kind === "image" ? IMAGE_MODEL_DEFAULT : VIDEO_MODEL_DEFAULT);
+
+      if (agent.kind === "image") {
+        setTyping("🎨 Painting your image… (10–30 seconds)");
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 120000);
+        try {
+          const out = await googleImageCall({
+            apiKey: settings.apiKey, model,
+            prompt: agent.systemPrompt + "\n\nCreate this image: " + text,
+            signal: controller.signal,
+          });
+          appendMessage({ role: "agent", text: out.text || "🖼️ Here's your image!", imageSrc: out.src });
+        } finally { clearTimeout(t); }
+      } else {
+        setTyping("🎬 Starting video job…");
+        const src = await veoGenerate({
+          apiKey: settings.apiKey, model,
+          prompt: agent.systemPrompt + "\n\nCreate this video: " + text,
+          onStatus: setTyping,
+        });
+        appendMessage({ role: "agent", text: "🎬 Your video is ready — press play!", videoSrc: src });
+      }
     } else {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 90000);
       try {
-        const model =
-          (settings.models && settings.models[settings.provider]) ||
+        const model = (settings.models && settings.models[settings.provider]) ||
           PROVIDERS[settings.provider].defaultModel;
         const history = loadChat(activeAgentId)
           .filter((m) => !m.error)
@@ -397,22 +589,25 @@ async function send() {
           provider: settings.provider,
           apiKey: settings.apiKey,
           model,
-          systemPrompt: activeAgent().systemPrompt,
+          systemPrompt: agent.systemPrompt,
           history,
           signal: controller.signal,
         });
         appendMessage({ role: "agent", text: answer });
-      } finally {
-        clearTimeout(timeout);
-      }
+      } finally { clearTimeout(timeout); }
     }
   } catch (err) {
+    const m = (err.message || "").toLowerCase();
+    let extra = "";
+    if (activeAgent().kind === "video" && (m.includes("billing") || m.includes("paid") || m.includes("permission") || m.includes("403") || m.includes("429"))) {
+      extra = "\n\n💡 Remember: Veo video API is **paid-only** (no free tier). Free video → labs.google/flow";
+    }
     const msg = err.name === "AbortError"
       ? "⏱ Took too long — try again or pick another model in Setup."
       : "⚠️ " + (err.message || "Something went wrong.");
     appendMessage({
       role: "agent", error: true,
-      text: msg + "\nOpen 🔑 Setup to re-verify your key, change model, or switch to Demo Mode.",
+      text: msg + extra + "\nOpen 🔑 Setup to re-verify your key, change the model, or switch to Demo Mode.",
     });
   } finally {
     typingEl.classList.add("hidden");
@@ -420,6 +615,10 @@ async function send() {
     sendBtn.disabled = false;
     inputEl.focus();
   }
+}
+
+function setTyping(text) {
+  $("#typingText").textContent = text || "";
 }
 
 // =====================================================
@@ -438,6 +637,10 @@ function openWizard() {
   modelInput.value =
     (settings.models && settings.models[providerSelect.value]) ||
     PROVIDERS[providerSelect.value].defaultModel;
+  $("#imageModelInput").value =
+    (settings.models && settings.models.image) || IMAGE_MODEL_DEFAULT;
+  $("#videoModelInput").value =
+    (settings.models && settings.models.video) || VIDEO_MODEL_DEFAULT;
   updateHelp();
   verifyStatus.className = "verify-status hidden";
   wizard.classList.remove("hidden");
@@ -496,7 +699,12 @@ verifyBtn.addEventListener("click", async () => {
       apiKey,
       demo: false,
       verified: true,
-      models: { ...(settings.models || {}), [provider]: model },
+      models: {
+        ...(settings.models || {}),
+        [provider]: model,
+        image: ($("#imageModelInput").value.trim()) || IMAGE_MODEL_DEFAULT,
+        video: ($("#videoModelInput").value.trim()) || VIDEO_MODEL_DEFAULT,
+      },
     };
     saveSettings();
     refreshMode();

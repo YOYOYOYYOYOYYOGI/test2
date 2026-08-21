@@ -1,6 +1,6 @@
 # AI Agents Chat ⚡
 
-A self-hosted mini "arena" — chat with 6 free AI agents, using free-tier API keys:
+A self-hosted mini "arena" — 8 free agents (6 chat + image creator + video creator) using free-tier API keys:
 
 | Agent | Style |
 |---|---|
@@ -10,6 +10,10 @@ A self-hosted mini "arena" — chat with 6 free AI agents, using free-tier API k
 | 🩵 DeepSeek Sage | Logical — step-by-step thinker |
 | 🟡 Llama Legend | Fun — casual chat with jokes |
 | ⚪ Grok Spark | Bold — witty, straight talk |
+| 🎨 **Dream Brush** | **CREATES IMAGES** — free (~500/day) via `gemini-2.5-flash-image` |
+| 🎬 **Motion Magic** | **CREATES VIDEOS** — Veo API (paid only; free website: labs.google/flow) |
+
+**Flow:** open the site → Setup wizard appears → start **Demo mode** (instant, no key) **or** paste a free API key → **Verify & Start** (the key is tested live) → chat, create images, etc.
 
 > Note: the agent **names are personas**. Real Claude Opus is a paid Anthropic model — here each name is a style/persona running on whichever free model you choose (e.g. Gemini Flash or Llama). Rename or add anything you like.
 

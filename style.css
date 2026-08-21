@@ -345,6 +345,39 @@ a { color: #93c5fd; }
 
 .modal-actions { display: flex; gap: 10px; }
 
+.bubble img {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 6px 0 2px;
+  display: block;
+}
+.bubble video {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 6px 0 2px;
+  display: block;
+}
+.save-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: .76rem;
+  font-weight: 600;
+  color: #93c5fd;
+  background: #0b0e14;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  text-decoration: none;
+}
+.save-link:hover { border-color: var(--accent); }
+
+.typing-text {
+  font-size: .76rem;
+  color: var(--muted);
+  margin-left: 8px;
+  align-self: center;
+}
+
 /* ---------- small screens ---------- */
 @media (max-width: 560px) {
   .agent-tab .tag { display: none; }
