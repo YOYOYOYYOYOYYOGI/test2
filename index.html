@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Agents Chat — Claude Opus &amp; Omni Flash</title>
-<link rel="stylesheet" href="style.css?v=3" />
+<title>AI Agents Chat — 6 free agents</title>
+<link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
 
@@ -12,22 +12,19 @@
   <div class="brand">
     <span class="brand-dot"></span>
     <h1>AI Agents Chat</h1>
+    <span id="modeBadge" class="mode-badge hidden">🎭 DEMO</span>
   </div>
   <div class="topbar-actions">
-    <button id="clearChatBtn" class="ghost-btn" title="Clear this agent's chat">🗑 Clear chat</button>
-    <button id="settingsBtn" class="ghost-btn" title="API key settings">⚙️ API key</button>
+    <button id="clearChatBtn" class="ghost-btn" title="Clear this agent's chat">🗑 Clear</button>
+    <button id="settingsBtn" class="ghost-btn" title="API key setup">🔑 Setup</button>
   </div>
 </header>
 
 <!-- Agent tabs -->
 <nav id="agentTabs" class="agent-tabs"></nav>
 
-<!-- No-key banner -->
-<div id="keyBanner" class="banner hidden">
-  🔑 No API key yet. Click <b>⚙️ API key</b> to add your <b>free</b> key —
-  get one at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
-  or <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.
-</div>
+<!-- Status banner -->
+<div id="keyBanner" class="banner hidden"></div>
 
 <!-- Chat -->
 <main id="chat" class="chat"></main>
@@ -39,65 +36,83 @@
 
 <!-- Composer -->
 <footer class="composer">
-  <textarea id="input" rows="1" placeholder="Message the agent…  (Enter to send, Shift+Enter for new line)"></textarea>
+  <textarea id="input" rows="1" placeholder="Message the agent…  (Enter to send)"></textarea>
   <button id="sendBtn" class="send-btn" title="Send">➤</button>
 </footer>
 
-<!-- Settings modal -->
-<div id="settingsModal" class="modal-overlay hidden">
+<!-- ============ SETUP WIZARD ============ -->
+<div id="wizardModal" class="modal-overlay hidden">
   <div class="modal">
-    <div class="modal-head">
-      <h2>⚙️ Settings — free API key</h2>
-      <button id="closeSettings" class="close-btn">✕</button>
+
+    <div class="wizard-step-head">
+      <h2>🔑 Start your free AI agents</h2>
+      <p class="wizard-sub">2 options — both 100% free, no credit card, no payment ever.</p>
     </div>
 
-    <label class="field">
-      <span>Provider</span>
-      <select id="providerSelect">
-        <option value="google">Google AI Studio (Gemini) — 100% free</option>
-        <option value="openrouter">OpenRouter — has free models</option>
-      </select>
-    </label>
+    <!-- OPTION A: demo -->
+    <div class="option-card demo-card">
+      <div class="option-title">🎭 Option A — Demo mode <span class="pill">instant, no key</span></div>
+      <p>Agents reply right now with simple simulated answers. Good for testing &amp; fun. Upgrade to a real key anytime.</p>
+      <button id="startDemoBtn" class="primary-btn wide">🎭 Start Demo Mode now</button>
+    </div>
 
-    <label class="field">
-      <span>API key</span>
-      <input id="apiKeyInput" type="password" placeholder="Paste your free API key here" autocomplete="off" />
-    </label>
+    <!-- OPTION B: real AI -->
+    <div class="option-card">
+      <div class="option-title">⚡ Option B — Real AI answers <span class="pill green">also free</span></div>
+      <p>Get a free API key (2 min), paste it below, I verify it, then chat starts for real.</p>
 
-    <label class="field">
-      <span>Model</span>
-      <input id="modelInput" type="text" list="modelList" placeholder="model name" autocomplete="off" />
-      <datalist id="modelList">
-        <option value="gemini-3.6-flash">Google — recommended, free</option>
-        <option value="gemini-3.5-flash">Google — free</option>
-        <option value="gemini-3.5-flash-lite">Google — free, light</option>
-        <option value="meta-llama/llama-3.3-70b-instruct:free">OpenRouter — free</option>
-        <option value="deepseek/deepseek-chat-v3.0324:free">OpenRouter — free</option>
-      </datalist>
-    </label>
+      <ol class="steps">
+        <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → sign in with Google → <b>Create API key</b> → copy it</li>
+        <li>Paste it below and press <b>Verify &amp; Start</b></li>
+      </ol>
 
-    <div class="help">
-      <p><b>How to get a FREE key (2 minutes):</b></p>
-      <ul id="helpGoogle">
-        <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></li>
-        <li>Sign in with Google → <b>Create API key</b> → copy it → paste above</li>
-        <li>Free models: <code>gemini-3.6-flash</code> (recommended), <code>gemini-3.5-flash</code>, <code>gemini-3.5-flash-lite</code></li>
+      <label class="field">
+        <span>Provider</span>
+        <select id="providerSelect">
+          <option value="google">Google AI Studio (Gemini) — 100% free</option>
+          <option value="openrouter">OpenRouter — free models</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>API key</span>
+        <input id="apiKeyInput" type="password" placeholder="Paste your free API key here" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Model</span>
+        <input id="modelInput" type="text" list="modelList" placeholder="model name" autocomplete="off" />
+        <datalist id="modelList">
+          <option value="gemini-3.6-flash">Google — recommended, free</option>
+          <option value="gemini-3.5-flash">Google — free</option>
+          <option value="gemini-3.5-flash-lite">Google — free, light</option>
+          <option value="meta-llama/llama-3.3-70b-instruct:free">OpenRouter — free</option>
+          <option value="deepseek/deepseek-chat-v3.0324:free">OpenRouter — free</option>
+        </datalist>
+      </label>
+
+      <div id="verifyStatus" class="verify-status hidden"></div>
+
+      <div class="modal-actions">
+        <button id="verifyBtn" class="primary-btn">✅ Verify &amp; Start</button>
+        <button id="removeKeyBtn" class="ghost-btn">Remove key</button>
+      </div>
+      <p class="tiny">🔐 Your key is stored only in your browser and sent only to the provider you choose — never anywhere else.</p>
+    </div>
+
+    <div class="wizard-foot">
+      <ul id="helpGoogle" class="hidden">
+        <li>Google free models: <code>gemini-3.6-flash</code>, <code>gemini-3.5-flash</code>, <code>gemini-3.5-flash-lite</code></li>
       </ul>
       <ul id="helpOpenrouter" class="hidden">
-        <li>Go to <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a></li>
-        <li>Sign up → <b>Create Key</b> → copy it → paste above</li>
-        <li>Free models: <code>meta-llama/llama-3.3-70b-instruct:free</code>, <code>deepseek/deepseek-chat-v3.0324:free</code>, <code>google/gemini-2.0-flash-exp:free</code></li>
+        <li>OpenRouter free models: <code>meta-llama/llama-3.3-70b-instruct:free</code>, <code>deepseek/deepseek-chat-v3.0324:free</code></li>
       </ul>
-      <p class="small">🔑 Your key is saved only in your browser (localStorage). It is never sent anywhere except the AI provider. Free tiers have daily rate limits.</p>
+      <button id="closeWizard" class="link-btn">Close window (you can set this up later)</button>
     </div>
 
-    <div class="modal-actions">
-      <button id="saveKeyBtn" class="primary-btn">Save</button>
-      <button id="removeKeyBtn" class="ghost-btn">Remove key</button>
-    </div>
   </div>
 </div>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

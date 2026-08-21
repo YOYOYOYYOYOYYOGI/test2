@@ -109,12 +109,74 @@ a { color: #93c5fd; }
 .banner {
   padding: 10px 16px;
   font-size: .85rem;
-  background: #2a2108;
-  color: #fbbf24;
-  border-bottom: 1px solid #4d3d0a;
+  border-bottom: 1px solid var(--border);
 }
-.banner a { color: #fcd34d; }
+.banner a { color: #93c5fd; }
+.banner.demo {
+  background: #221507; color: #fdba74; border-color: #7c2d12;
+}
+.banner.ok { background: #052e16; color: #86efac; border-color: #166534; }
 .hidden { display: none !important; }
+
+.mode-badge {
+  font-size: .62rem; font-weight: 700; letter-spacing: .5px;
+  background: #7c2d12; color: #fdba74;
+  border-radius: 999px; padding: 3px 8px;
+}
+
+/* ---------- wizard ---------- */
+.wizard-step-head { margin-bottom: 14px; }
+.wizard-step-head h2 { font-size: 1.05rem; margin-bottom: 4px; }
+.wizard-sub { font-size: .8rem; color: var(--muted); }
+
+.option-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  font-size: .84rem;
+  color: var(--muted);
+}
+.option-card p { margin: 6px 0 10px; }
+.option-title { font-size: .92rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pill {
+  font-size: .62rem; font-weight: 700; letter-spacing: .3px;
+  background: #1e293b; color: #93c5fd;
+  border-radius: 999px; padding: 3px 8px;
+}
+.pill.green { background: #052e16; color: #86efac; }
+.demo-card { border-color: #7c2d12; }
+
+.steps { margin: 4px 0 12px 18px; }
+.steps li { margin-bottom: 5px; }
+.steps a { color: #93c5fd; }
+
+.wide { width: 100%; }
+
+.verify-status {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: .82rem;
+  margin-bottom: 12px;
+}
+.verify-status.ok { background: #052e16; color: #86efac; border: 1px solid #166534; }
+.verify-status.err { background: #2d1113; color: #fca5a5; border: 1px solid #7f1d1d; }
+.verify-status.wait { background: #1e293b; color: #93c5fd; border: 1px solid #334155; }
+
+.tiny { font-size: .72rem; color: var(--muted); margin-top: 10px; }
+
+.wizard-foot { text-align: center; }
+.wizard-foot ul { margin: 4px 0 8px 18px; text-align: left; font-size: .74rem; color: var(--muted); }
+.wizard-foot code {
+  background: #0b0e14; border: 1px solid var(--border);
+  border-radius: 4px; padding: 0 4px; font-size: .72rem; color: #c7d2fe;
+}
+.link-btn {
+  background: none; border: none; color: var(--muted);
+  font-size: .78rem; cursor: pointer; text-decoration: underline;
+}
+.link-btn:hover { color: var(--text); }
 
 /* ---------- chat ---------- */
 .chat {
