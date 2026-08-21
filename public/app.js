@@ -4,7 +4,12 @@ const modelPicker = $('#modelPicker'), modelWrap = $('#modelPickerWrap');
 let history = [];
 async function request(url, options = {}) {
   const response = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options });
-  const data = await response.json();
+  const raw = await response.text();
+  let data;
+  try { data = JSON.parse(raw); }
+  catch {
+    throw new Error('The app server returned a web page instead of the agent API. Start it with “npm start” and open the URL shown by that command — do not open public/index.html directly or deploy only the public folder.');
+  }
   if (!response.ok) throw new Error(data.error || 'Request failed.');
   return data;
 }

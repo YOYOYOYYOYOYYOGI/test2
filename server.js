@@ -115,6 +115,7 @@ async function api(req, res) {
   return json(res, 404, { error: 'API route not found.' });
 }
 function serveStatic(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Only GET requests are supported for website files.' });
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const requested = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const file = path.resolve(PUBLIC_DIR, requested);
