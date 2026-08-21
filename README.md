@@ -1,6 +1,15 @@
 # AI Agents Chat ⚡
 
-A self-hosted mini "arena" — chat with AI agents **Claude Opus** (deep thinker) and **Omni Flash** (fast & punchy), 100% free, using free-tier API keys.
+A self-hosted mini "arena" — chat with 6 free AI agents, using free-tier API keys:
+
+| Agent | Style |
+|---|---|
+| 🟣 Claude Opus | Deep thinker — long, thoughtful answers |
+| 🟠 Omni Flash | Speedy — short, punchy answers |
+| 🔵 Gemini Nova | Balanced — friendly everyday helper |
+| 🩵 DeepSeek Sage | Logical — step-by-step thinker |
+| 🟡 Llama Legend | Fun — casual chat with jokes |
+| ⚪ Grok Spark | Bold — witty, straight talk |
 
 > Note: the agent **names are personas**. Real Claude Opus is a paid Anthropic model — here each name is a style/persona running on whichever free model you choose (e.g. Gemini Flash or Llama). Rename or add anything you like.
 
