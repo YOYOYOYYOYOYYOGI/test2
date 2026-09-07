@@ -4,12 +4,13 @@
 // ---------------------------------------------------------------------------
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Order } from '../../types';
-import { useAppStore } from '../../store/appStore';
+import { useAppStore, toast } from '../../store/appStore';
 import { Button, Modal } from '../ui';
 import { LabelSheet, labelSizePx } from './LabelSheet';
 import { buildLabelModel } from './labelModel';
 import { openPrintPage } from './printFlow';
-import { IconPrinter } from '../icons';
+import { downloadOrderLabelPng } from '../../services/labelDownload';
+import { IconDownload, IconPrinter } from '../icons';
 
 export function LabelPreviewModal({ order, onClose, onNew, markOnPrint = true }: {
   order: Order;
@@ -22,8 +23,22 @@ export function LabelPreviewModal({ order, onClose, onNew, markOnPrint = true }:
   const fields = useAppStore((s) => s.fields);
   const model = useMemo(() => buildLabelModel(order, settings, fields), [order, settings, fields]);
   const [scale, setScale] = useState(1);
+  const [dlBusy, setDlBusy] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const { width, height } = labelSizePx(settings);
+
+  const downloadLabel = async () => {
+    if (dlBusy) return;
+    setDlBusy(true);
+    try {
+      await downloadOrderLabelPng(order, settings, fields);
+      toast('success', `Label for ${order.orderNumber} downloaded.`);
+    } catch (e) {
+      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setDlBusy(false);
+    }
+  };
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -48,6 +63,9 @@ export function LabelPreviewModal({ order, onClose, onNew, markOnPrint = true }:
       footer={
         <>
           {onNew && <Button variant="ghost" onClick={onNew}>Save Another Order</Button>}
+          <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadLabel()} disabled={dlBusy}>
+            {dlBusy ? <span className="spinner" /> : 'Download Label'}
+          </Button>
           <Button variant="outline" icon={<IconPrinter width={14} />} onClick={() => openPrintPage({ orderIds: [order.id], auto: true })}>
             Print
           </Button>

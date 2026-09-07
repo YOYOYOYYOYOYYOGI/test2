@@ -6,15 +6,19 @@ import { useAppStore, toast } from '../../store/appStore';
 import type { Order } from '../../types';
 import { formatDate, formatMoney, startOfDay, ORDER_STATUSES, PAYMENT_STATUSES } from '../../lib/constants';
 import { Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Pagination, Select, paymentBadgeColor, orderStatusColor } from '../../components/ui';
-import { IconCopy, IconEye, IconList, IconPrinter, IconRefresh, IconSearch, IconTrash } from '../../components/icons';
+import { IconCopy, IconDownload, IconEye, IconList, IconPrinter, IconRefresh, IconSearch, IconTrash } from '../../components/icons';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
+import { downloadBlob, prepareOrdersExport } from '../../services/excelExport';
+import { downloadOrderLabelPng } from '../../services/labelDownload';
 
 type DateFilter = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 
 export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) {
   const orders = useAppStore((s) => s.orders);
   const settings = useAppStore((s) => s.settings);
+  const fields = useAppStore((s) => s.fields);
+  const products = useAppStore((s) => s.products);
   const removeOrder = useAppStore((s) => s.removeOrder);
   const refreshConfig = useAppStore((s) => s.refreshConfig);
 
@@ -36,6 +40,43 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
   const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [xlBusy, setXlBusy] = useState<'today' | 'all' | null>(null);
+  const [dlLabelId, setDlLabelId] = useState<string | null>(null);
+
+  const exportCtx = useMemo(() => ({ settings, fields, products }), [settings, fields, products]);
+
+  const downloadExcel = async (kind: 'today' | 'all') => {
+    if (xlBusy) return;
+    setXlBusy(kind);
+    try {
+      // Uses the extension's own order cache (mirror of the Google Sheet) —
+      // no extra data source, no full sheet re-download.
+      const { filename, blob, count } = prepareOrdersExport(kind, orders, exportCtx);
+      if (count === 0) {
+        toast('info', kind === 'today' ? 'No orders created today yet.' : 'No orders stored yet.');
+        return;
+      }
+      downloadBlob(filename, blob);
+      toast('success', `${filename} downloaded — ${count} order${count === 1 ? '' : 's'}.`);
+    } catch (e) {
+      toast('error', 'Excel download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setXlBusy(null);
+    }
+  };
+
+  const downloadLabel = async (o: Order) => {
+    if (dlLabelId) return;
+    setDlLabelId(o.id);
+    try {
+      await downloadOrderLabelPng(o, settings, fields);
+      toast('success', `Label for ${o.orderNumber} downloaded.`);
+    } catch (e) {
+      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setDlLabelId(null);
+    }
+  };
 
   useEffect(() => {
     void import('../../services/orders').then((m) => m.getPendingOps().then((ops) => setPendingCount(ops.length)));
@@ -131,7 +172,13 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
           <h1>Orders</h1>
           <div className="sub">{filtered.length} order{filtered.length === 1 ? '' : 's'} · <b>{newOrders.length}</b> new &amp; unprinted{pendingCount > 0 && ` · ${pendingCount} waiting to sync`}</div>
         </div>
-        <div className="row">
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('today')} disabled={xlBusy !== null || orders.length === 0} title="Download today's orders as an Excel .xlsx file">
+            {xlBusy === 'today' ? <span className="spinner" /> : <>Download Today&rsquo;s Orders</>}
+          </Button>
+          <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('all')} disabled={xlBusy !== null || orders.length === 0} title="Download all orders as an Excel .xlsx file">
+            {xlBusy === 'all' ? <span className="spinner" /> : <>Download All Orders</>}
+          </Button>
           {pendingCount > 0 && (
             <Button variant="outline" icon={<IconRefresh width={14} />} onClick={() => void syncNow()} disabled={syncing}>
               {syncing ? <span className="spinner" /> : 'Sync Now'}
@@ -235,6 +282,9 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
                         <div className="tbl-actions">
                           <Button size="sm" variant="ghost" title="View" onClick={() => setView(o)}><IconEye width={13} /></Button>
                           <Button size="sm" variant="ghost" title="Edit" onClick={() => go('edit', o.id)}>Edit</Button>
+                          <Button size="sm" variant="ghost" title="Download this order's label (PNG)" onClick={() => void downloadLabel(o)} disabled={dlLabelId === o.id}>
+                            {dlLabelId === o.id ? <span className="spinner" /> : <IconDownload width={13} />}
+                          </Button>
                           <Button size="sm" variant="primary" title="Generate label" onClick={() => setLabelOrder(o)}><IconPrinter width={13} /> Label</Button>
                         </div>
                       </td>
@@ -289,6 +339,20 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
   onDelete: () => void;
 }) {
   const settings = useAppStore((s) => s.settings);
+  const fields = useAppStore((s) => s.fields);
+  const [dlBusy, setDlBusy] = useState(false);
+  const downloadLabel = async () => {
+    if (dlBusy) return;
+    setDlBusy(true);
+    try {
+      await downloadOrderLabelPng(order, settings, fields);
+      toast('success', `Label for ${order.orderNumber} downloaded.`);
+    } catch (e) {
+      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setDlBusy(false);
+    }
+  };
   return (
     <Modal open onClose={onClose} title={`Order ${order.orderNumber}`} wide
       footer={
@@ -296,6 +360,9 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
           <Button variant="dangerOutline" onClick={onDelete} icon={<IconTrash width={13} />}>Delete</Button>
           <Button variant="outline" onClick={onDuplicate} icon={<IconCopy width={13} />}>Duplicate</Button>
           <Button variant="outline" onClick={onEdit}>Edit</Button>
+          <Button variant="outline" icon={<IconDownload width={13} />} onClick={() => void downloadLabel()} disabled={dlBusy}>
+            {dlBusy ? <span className="spinner" /> : 'Download Label'}
+          </Button>
           <Button variant="primary" onClick={onLabel} icon={<IconPrinter width={13} />}>Generate Label</Button>
         </>
       }>
