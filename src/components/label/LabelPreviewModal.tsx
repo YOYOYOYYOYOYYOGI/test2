@@ -9,7 +9,7 @@ import { Button, Modal } from '../ui';
 import { LabelSheet, labelSizePx } from './LabelSheet';
 import { buildLabelModel } from './labelModel';
 import { openPrintPage } from './printFlow';
-import { downloadOrderLabelPng } from '../../services/labelDownload';
+import { downloadOrderLabelPdf, labelDownloadErrorMessage } from '../../services/labelDownload';
 import { IconDownload, IconPrinter } from '../icons';
 
 export function LabelPreviewModal({ order, onClose, onNew, markOnPrint = true }: {
@@ -31,10 +31,10 @@ export function LabelPreviewModal({ order, onClose, onNew, markOnPrint = true }:
     if (dlBusy) return;
     setDlBusy(true);
     try {
-      await downloadOrderLabelPng(order, settings, fields);
-      toast('success', `Label for ${order.orderNumber} downloaded.`);
+      const res = await downloadOrderLabelPdf(order, settings, fields);
+      toast('success', `${res.filename} downloaded.`);
     } catch (e) {
-      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+      toast('error', labelDownloadErrorMessage(e), { message: 'Please try again. If it keeps failing, check the browser console for technical details.' });
     } finally {
       setDlBusy(false);
     }

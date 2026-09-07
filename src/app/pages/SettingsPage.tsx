@@ -1,15 +1,18 @@
 // ---------------------------------------------------------------------------
 // Settings — Business / Spreadsheet / Order numbering / Label / Backup
 // ---------------------------------------------------------------------------
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
-import type { LabelSizeId, Order, Settings } from '../../types';
-import { LABEL_SIZES, ORDER_STATUSES, PAYMENT_STATUSES, formatDate } from '../../lib/constants';
+import type { LabelFontKey, LabelSizeId, Order, Settings } from '../../types';
+import { LABEL_SIZES, ORDER_STATUSES, PAYMENT_STATUSES, demoOrders, formatDate } from '../../lib/constants';
 import { Badge, Button, Card, Checkbox, ConfirmDialog, Field, Input, Select, TextArea, Toggle, downloadFile } from '../../components/ui';
 import { IconDownload, IconUpload, IconLink } from '../../components/icons';
 import { LS, storage, inExtension } from '../../services/storage';
 import { bgAuthConnect, bgSyncPendingOrders, bgListSpreadsheets, bgListWorksheets } from '../../services/messaging';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
+import { LabelSheetComponent, labelSizePx } from '../../components/label/LabelSheet';
+import { buildLabelModel } from '../../components/label/labelModel';
+import { LABEL_FONT_FAMILIES, LABEL_FONT_KEYS, LABEL_FONT_LABELS, labelFontFamily, labelGlobalFontSize } from '../../components/label/labelStyle';
 
 type Tab = 'business' | 'spreadsheet' | 'order' | 'label' | 'backup';
 
@@ -50,6 +53,42 @@ function useDraft<T>(pick: (s: Settings) => T): [T, (v: T) => void, () => void] 
 }
 
 // ---------------------------------------------------------------------------
+/** Read an image file → square-safe JPEG data URL (≤512px, white background).
+ *  Stored as a data URL inside settings — NOT a blob: URL — so the logo
+ *  survives restarts and is available to preview/print/PDF identically. */
+function readLogoFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the image file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('The selected file is not a valid image.'));
+      img.onload = () => {
+        try {
+          const max = 512;
+          const k = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * k));
+          const h = Math.max(1, Math.round(img.height * k));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { reject(new Error('Canvas is unavailable in this browser.')); return; }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.88));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------------------------------------------------------------------------
 function BusinessTab() {
   const store = useAppStore();
   const settings = useAppStore((s) => s.settings);
@@ -63,25 +102,9 @@ function BusinessTab() {
   };
 
   const pickLogo = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const size = Math.min(512, Math.max(128, img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = size; canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        const s = Math.min(img.width, img.height);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, size, size);
-        ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
-        setDraft((d) => ({ ...d, logoDataUrl: canvas.toDataURL('image/jpeg', 0.85) }));
-        toast('success', 'Logo added');
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
+    readLogoFile(file)
+      .then((url) => { setDraft((d) => ({ ...d, logoDataUrl: url })); toast('success', 'Logo added'); })
+      .catch((e) => toast('error', 'Could not add the logo', { message: e instanceof Error ? e.message : undefined }));
   };
 
   const f = (key: keyof Settings['business'], label: string, placeholder = '') => (
@@ -300,17 +323,29 @@ function LabelTab() {
   const settings = useAppStore((s) => s.settings);
   const fields = useAppStore((s) => s.fields);
   const orders = useAppStore((s) => s.orders);
-  const [draft, setDraft] = useState<Settings['labels']>({ ...settings.labels });
+  const [draft, setDraft] = useState<Settings['labels']>({ ...settings.labels, fontSizes: { ...(settings.labels.fontSizes ?? {}) } });
   const [draftFields, setDraftFields] = useState<string[]>(settings.labelFields ?? []);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(settings.labels) || JSON.stringify(draftFields) !== JSON.stringify(settings.labelFields);
+  const [logoUrl, setLogoUrl] = useState<string>(settings.business.logoDataUrl);
+  const logoRef = useRef<HTMLInputElement>(null);
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(settings.labels) ||
+    JSON.stringify(draftFields) !== JSON.stringify(settings.labelFields) ||
+    logoUrl !== settings.business.logoDataUrl;
   const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
 
   const included = (f: { id: string }) => draftFields.includes(f.id);
   const labelable = [...fields].sort((a, b) => a.order - b.order).filter((f) => !['productsSummary', 'quantity', 'totalAmount', 'createdAt', 'updatedAt'].includes(String(f.key)));
 
   const save = async () => {
-    await store.persist({ settings: { ...settings, labels: draft, labelFields: draftFields } });
-    toast('success', 'Label settings saved', { message: 'Used by new print jobs.' });
+    await store.persist({
+      settings: {
+        ...settings,
+        labels: draft,
+        labelFields: draftFields,
+        business: { ...settings.business, logoDataUrl: logoUrl },
+      },
+    });
+    toast('success', 'Label settings saved', { message: 'Used by preview, printing and PDF download.' });
   };
 
   const toggle = (k: keyof Settings['labels']) => setDraft({ ...draft, [k]: !draft[k] });
@@ -321,22 +356,73 @@ function LabelTab() {
 
   const sizeDef = LABEL_SIZES[draft.sizeId] ?? LABEL_SIZES['4x6'];
 
+  // ---- font helpers (draft-only until Save) ----
+  const globalPx = labelGlobalFontSize(draft);
+  const family = labelFontFamily(draft);
+  const setOverride = (k: LabelFontKey, v: number | null) => {
+    const next = { ...(draft.fontSizes ?? {}) };
+    if (v === null) delete next[k];
+    else next[k] = Math.min(72, Math.max(6, Math.round(v)));
+    setDraft({ ...draft, fontSizes: next });
+  };
+  const effPx = (k: LabelFontKey) => (draft.fontSizes?.[k] !== undefined ? draft.fontSizes![k]! : globalPx);
+
+  // ---- live preview reflects unsaved draft changes ----
+  const previewSettings: Settings = {
+    ...settings,
+    labels: draft,
+    labelFields: draftFields,
+    business: { ...settings.business, logoDataUrl: logoUrl },
+  };
+  const sample = useMemo<Order | null>(() => orders[0] ?? null, [orders]);
+  const previewModel = useMemo(() => {
+    const base = sample ?? demoOrders()[0];
+    return base ? buildLabelModel(base, previewSettings, fields) : null;
+  }, [sample, previewSettings, fields]);
+  const pSize = labelSizePx(previewSettings);
+  const pScale = Math.min(1, 520 / Math.max(1, pSize.width));
+
+  const pickLogo = (file: File) => {
+    readLogoFile(file)
+      .then((url) => { setLogoUrl(url); toast('success', 'Logo added — press Save to keep it.'); })
+      .catch((e) => toast('error', 'Could not add the logo', { message: e instanceof Error ? e.message : undefined }));
+  };
+
+  const fontRow = (k: LabelFontKey) => {
+    const over = draft.fontSizes?.[k];
+    return (
+      <div key={k} className="row" style={{ justifyContent: 'space-between', gap: 10, padding: '5px 0', borderBottom: '1px dashed var(--border)' }}>
+        <span style={{ fontSize: 13.5 }}>{LABEL_FONT_LABELS[k]}</span>
+        <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <Button size="sm" variant="outline" title="Smaller" onClick={() => setOverride(k, effPx(k) - 1)} disabled={effPx(k) <= 6}>−</Button>
+          <div style={{ width: 76, textAlign: 'center', fontSize: 13 }}>
+            {effPx(k)}px{over === undefined && <span className="small muted"> auto</span>}
+          </div>
+          <Button size="sm" variant="outline" title="Bigger" onClick={() => setOverride(k, effPx(k) + 1)} disabled={effPx(k) >= 72}>+</Button>
+          {over !== undefined && (
+            <Button size="sm" variant="ghost" title="Follow the global font size again" onClick={() => setOverride(k, null)}>auto</Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div style={{ maxWidth: 900 }} className="col">
+    <div style={{ maxWidth: 940 }} className="col">
       <Card title="Label size" actions={
         <div className="row">
-          <Button size="sm" variant="outline" disabled={orders.length === 0} onClick={() => setPreviewOrder(orders[0])}>👁 Preview label</Button>
+          <Button size="sm" variant="outline" disabled={orders.length === 0} onClick={() => setPreviewOrder(orders[0])}>👁 Full-size preview</Button>
           <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>Save</Button>
         </div>
       }>
         <div className="card-pad">
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {(Object.keys(LABEL_SIZES) as LabelSizeId[]).filter((id) => id !== 'custom').map((id) => {
-              const s = LABEL_SIZES[id];
+              const sz = LABEL_SIZES[id];
               return (
                 <button key={id} className={`pill-btn ${draft.sizeId === id ? 'selected' : ''}`}
-                  onClick={() => setDraft({ ...draft, sizeId: id, widthMm: s.widthMm, heightMm: s.heightMm })}>
-                  {s.label}
+                  onClick={() => setDraft({ ...draft, sizeId: id, widthMm: sz.widthMm, heightMm: sz.heightMm })}>
+                  {sz.label}
                 </button>
               );
             })}
@@ -350,10 +436,81 @@ function LabelTab() {
         </div>
       </Card>
 
+      {/* Live preview of the current draft — updates immediately as you change settings */}
+      <Card title="Live preview" actions={<span className="hint">{sizeDef.label} · {Math.round(pSize.width)} × {Math.round(pSize.height)} px · {family}</span>}>
+        <div className="card-pad" style={{ overflow: 'auto' }}>
+          {previewModel ? (
+            <div style={{ width: pSize.width * pScale, height: pSize.height * pScale, position: 'relative', margin: '0 auto' }}>
+              <div style={{ transform: `scale(${pScale})`, transformOrigin: 'top left', width: pSize.width, minHeight: pSize.height, boxShadow: '0 1px 10px rgba(15,23,42,.18)', border: '1px solid #d7e0ec' }}>
+                <LabelSheetComponent model={previewModel} settings={previewSettings} />
+              </div>
+            </div>
+          ) : (
+            <div className="empty" style={{ padding: 20 }}>Add a product/order to preview a sample label (or save an order).</div>
+          )}
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>Preview mirrors unsaved changes — it is the exact design used for printing and PDF download.</p>
+        </div>
+      </Card>
+
+      {/* Logo on the label */}
+      <Card title="Logo on the label">
+        <div className="card-pad col" style={{ gap: 12 }}>
+          <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
+            <div style={{ width: 84, height: 84, borderRadius: 10, border: '1px dashed var(--border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff', flex: '0 0 auto' }}>
+              {logoUrl ? <img src={logoUrl} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" /> : <span className="muted small">No logo</span>}
+            </div>
+            <div className="col" style={{ gap: 6 }}>
+              <input ref={logoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) pickLogo(f); e.target.value = ''; }} />
+              <Button size="sm" variant="outline" onClick={() => logoRef.current?.click()}>{logoUrl ? 'Change logo' : 'Upload logo'}</Button>
+              {logoUrl && <Button size="sm" variant="ghost" onClick={() => { setLogoUrl(''); toast('info', 'Logo removed — press Save to keep it.'); }}>Remove logo</Button>}
+              <span className="hint">PNG/JPG — stored inside the extension settings (not a temporary link), so it keeps working after closing Chrome and appears in preview, print and the PDF.</span>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Checkbox checked={draft.showLogo !== false} onChange={() => toggle('showLogo')} label="Show logo on labels" />
+            <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+              <span className="small" style={{ color: 'var(--muted)' }}>Logo width:</span>
+              <Button size="sm" variant="outline" onClick={() => setNumClamp('logoWidth', -8)}>−</Button>
+              <Input type="number" min={24} max={320} value={Math.max(24, Math.min(320, draft.logoWidth ?? 96))}
+                onChange={(e) => setDraft({ ...draft, logoWidth: Math.max(24, Math.min(320, parseFloat(e.target.value || '96'))) })}
+                style={{ width: 76, textAlign: 'center' }} />
+              <Button size="sm" variant="outline" onClick={() => setNumClamp('logoWidth', +8)}>+</Button>
+              <span className="small muted">px · aspect ratio kept automatically</span>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Font settings */}
+      <Card title="Fonts">
+        <div className="card-pad col" style={{ gap: 10 }}>
+          <div className="row" style={{ gap: 18, flexWrap: 'wrap' }}>
+            <Field label="Font family">
+              <Select value={family} onChange={(e) => setDraft({ ...draft, fontFamily: e.target.value })} style={{ width: 170 }}>
+                {LABEL_FONT_FAMILIES.map((ff) => <option key={ff} value={ff}>{ff}</option>)}
+              </Select>
+            </Field>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13.5 }}>Global label font size</span>
+              <Button size="sm" variant="outline" disabled={globalPx <= 8} onClick={() => setDraft({ ...draft, fontSize: globalPx - 1 })}>−</Button>
+              <Input type="number" min={8} max={30} value={globalPx}
+                onChange={(e) => setDraft({ ...draft, fontSize: Math.max(8, Math.min(30, parseFloat(e.target.value || '13'))) })}
+                style={{ width: 64, textAlign: 'center' }} />
+              <Button size="sm" variant="outline" disabled={globalPx >= 30} onClick={() => setDraft({ ...draft, fontSize: globalPx + 1 })}>+</Button>
+              <span className="small muted">px — parts marked “auto” follow this</span>
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+            {LABEL_FONT_KEYS.map((k) => fontRow(k))}
+          </div>
+          <p className="hint">“auto” parts follow the global font size; +/− sets a fixed size for that part only (6–72 px).</p>
+        </div>
+      </Card>
+
       <Card title="What appears on the label">
         <div className="card-pad col" style={{ gap: 8 }}>
           <div className="grid grid-2" style={{ gap: 4 }}>
-            <Checkbox checked={draft.showBusinessHeader} onChange={() => toggle('showBusinessHeader')} label="Business header (name, phone, GST…)" />
+            <Checkbox checked={draft.showBusinessHeader} onChange={() => toggle('showBusinessHeader')} label="Business header (name, logo, phone, GST…)" />
             <Checkbox checked={draft.showOrderNumber} onChange={() => toggle('showOrderNumber')} label="Order number bar" />
             <Checkbox checked={draft.showCustomer} onChange={() => toggle('showCustomer')} label="Customer name" />
             <Checkbox checked={draft.showAddress} onChange={() => toggle('showAddress')} label="Ship-to address block" />
@@ -382,6 +539,11 @@ function LabelTab() {
       {previewOrder && <LabelPreviewModal order={previewOrder} onClose={() => setPreviewOrder(null)} />}
     </div>
   );
+
+  function setNumClamp(k: 'logoWidth', delta: number) {
+    const cur = Math.max(24, Math.min(320, draft[k] ?? 96));
+    setDraft({ ...draft, [k]: cur + delta });
+  }
 }
 
 // ---------------------------------------------------------------------------

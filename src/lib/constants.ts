@@ -154,6 +154,13 @@ export function defaultSettings(): Settings {
       showBarcode: false,
       showFooter: true,
       footerText: 'Thank you for your order!',
+      showLogo: true,
+      logoWidth: 96,
+      fontFamily: 'Inter',
+      fontSize: 13,
+      // empty = every part follows the global font size; per-part values can
+      // be added to override it
+      fontSizes: {},
     },
     labelFields: [],
     mappings: {},

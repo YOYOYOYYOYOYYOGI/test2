@@ -60,15 +60,48 @@ export function PrintPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-print only after everything is truly ready: fonts loaded, then the
+  // logo / QR / barcode images decoded. If an expected image never loads, warn
+  // (console) but still print — one optional image must not block printing.
   useEffect(() => {
     if (!orders || !settings) return;
-    const done = () => {
-      if (printedRef.current) return;
-      printedRef.current = true;
-      setTimeout(() => { window.print(); }, 650);
+    let cancelled = false;
+
+    const waitFonts = (capMs: number) =>
+      Promise.race([
+        ('fonts' in document ? document.fonts.ready : Promise.resolve()),
+        new Promise((r) => setTimeout(r, capMs)),
+      ]);
+
+    const waitImages = async (deadlineMs = 4000) => {
+      const deadline = Date.now() + deadlineMs;
+      for (;;) {
+        const imgs = Array.from(document.querySelectorAll<HTMLImageElement>('.print-stack img'));
+        const ready = imgs.every((img) => img.complete && img.naturalWidth > 0);
+        if (ready) return;
+        if (Date.now() > deadline) {
+          const stuck = imgs.filter((img) => !img.complete || img.naturalWidth === 0);
+          stuck.forEach((img) => {
+            const isLogo = img.getAttribute('data-label-logo') === '1' || img.alt === 'logo';
+            if (isLogo) console.warn('[print] The business logo could not be loaded before printing — it may be missing from the printed label.');
+            else console.warn('[print] An optional label image could not be loaded before printing:', img.alt || 'image');
+          });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 60));
+      }
     };
-    const t = setTimeout(done, 900);
-    return () => clearTimeout(t);
+
+    void (async () => {
+      await waitFonts(1200);
+      await waitImages(4000);
+      if (cancelled || printedRef.current) return;
+      printedRef.current = true;
+      // small settle delay so the layout is fully painted before the dialog
+      setTimeout(() => { if (!cancelled) window.print(); }, 400);
+    })();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, settings]);
 

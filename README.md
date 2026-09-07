@@ -231,7 +231,13 @@ After enabling products Night Cream & Face Serum + saving orders:
   **Download All Orders** (`all-orders.xlsx`) — real `.xlsx` files with bold
   headers, frozen header row, auto-sized columns, dynamic columns from your
   configured fields + one `<Product> Qty` column per product, one order per row
-- Per-order **Download Label** (PNG image of the exact label)
+- Per-order **Download Label** → real one-page PDF (`ORD-1001-label.pdf`) at the
+  exact configured label size — same single renderer as preview & print
+- **Label Design**: upload logo (persisted in settings — appears in preview,
+  print and PDF), show/hide logo, logo width; font family (Inter/Arial/
+  Helvetica/Roboto/sans-serif); global font size; per-part sizes for business
+  name, order number, customer, details, address, products, payment, total and
+  footer; live preview in Settings reflects every change instantly
 - Labels: 4×6″, A6, 100×150 mm, A4, custom mm; business header, logo, order
   bar, customer, ship-to, **products with Qty**, payment strip, notes,
   QR (order+customer+phone) and CODE128 barcode, footer text, field checkboxes
@@ -239,7 +245,7 @@ After enabling products Night Cream & Face Serum + saving orders:
   auto print dialog, auto-close after print
 - Print status tracking: Not Printed / Printed + Printed At (syncs back to the
   sheet); “Print New Orders” marks orders as printed
-- Download Label saves any order's label as a PNG; Excel downloads use the
+- Download Label saves any order's label as a PDF; Excel downloads use the
   cached order data (mirror of the spreadsheet) — fast, no sheet re-download
 - Settings: business info + logo upload, spreadsheet reconnect/change,
   order numbering (prefix/start/padding, manual override), label design,

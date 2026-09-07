@@ -10,7 +10,7 @@ import { IconCopy, IconDownload, IconEye, IconList, IconPrinter, IconRefresh, Ic
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 import { downloadBlob, prepareOrdersExport } from '../../services/excelExport';
-import { downloadOrderLabelPng } from '../../services/labelDownload';
+import { downloadOrderLabelPdf, labelDownloadErrorMessage } from '../../services/labelDownload';
 
 type DateFilter = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 
@@ -69,10 +69,10 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
     if (dlLabelId) return;
     setDlLabelId(o.id);
     try {
-      await downloadOrderLabelPng(o, settings, fields);
-      toast('success', `Label for ${o.orderNumber} downloaded.`);
+      const res = await downloadOrderLabelPdf(o, settings, fields);
+      toast('success', `${res.filename} downloaded.`);
     } catch (e) {
-      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+      toast('error', labelDownloadErrorMessage(e), { message: 'Please try again. If it keeps failing, check the browser console for technical details.' });
     } finally {
       setDlLabelId(null);
     }
@@ -282,7 +282,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
                         <div className="tbl-actions">
                           <Button size="sm" variant="ghost" title="View" onClick={() => setView(o)}><IconEye width={13} /></Button>
                           <Button size="sm" variant="ghost" title="Edit" onClick={() => go('edit', o.id)}>Edit</Button>
-                          <Button size="sm" variant="ghost" title="Download this order's label (PNG)" onClick={() => void downloadLabel(o)} disabled={dlLabelId === o.id}>
+                          <Button size="sm" variant="ghost" title="Download this order's label (PDF)" onClick={() => void downloadLabel(o)} disabled={dlLabelId === o.id}>
                             {dlLabelId === o.id ? <span className="spinner" /> : <IconDownload width={13} />}
                           </Button>
                           <Button size="sm" variant="primary" title="Generate label" onClick={() => setLabelOrder(o)}><IconPrinter width={13} /> Label</Button>
@@ -345,10 +345,10 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
     if (dlBusy) return;
     setDlBusy(true);
     try {
-      await downloadOrderLabelPng(order, settings, fields);
-      toast('success', `Label for ${order.orderNumber} downloaded.`);
+      const res = await downloadOrderLabelPdf(order, settings, fields);
+      toast('success', `${res.filename} downloaded.`);
     } catch (e) {
-      toast('error', 'Label download failed', { message: e instanceof Error ? e.message : undefined });
+      toast('error', labelDownloadErrorMessage(e), { message: 'Please try again. If it keeps failing, check the browser console for technical details.' });
     } finally {
       setDlBusy(false);
     }

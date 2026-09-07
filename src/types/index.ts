@@ -176,6 +176,18 @@ export interface OrderNumberConfig {
   manual: boolean;
 }
 
+export type LabelFontKey =
+  | 'businessName'
+  | 'orderNumber'
+  | 'customerName'
+  | 'customerDetails'
+  | 'address'
+  | 'productName'
+  | 'productQty'
+  | 'payment'
+  | 'amount'
+  | 'footer';
+
 export interface LabelConfig {
   sizeId: LabelSizeId;
   widthMm: number;
@@ -190,6 +202,16 @@ export interface LabelConfig {
   showBarcode: boolean;
   showFooter: boolean;
   footerText: string;
+  /** show the uploaded business logo on the label */
+  showLogo?: boolean;
+  /** logo width on the label, px (height auto-keeps aspect ratio) */
+  logoWidth?: number;
+  /** font family: Inter | Arial | Helvetica | Roboto | sans-serif */
+  fontFamily?: string;
+  /** global base font size in px */
+  fontSize?: number;
+  /** optional per-part overrides of the global font size */
+  fontSizes?: Partial<Record<LabelFontKey, number>>;
 }
 
 export interface Settings {
