@@ -1,0 +1,38 @@
+{
+  "name": "order-label-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension — WhatsApp orders -> Google Sheets -> printable shipping labels",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && vite build --config vite.bg.config.ts && node scripts/postbuild.mjs",
+    "test": "vitest run",
+    "icons": "node scripts/make-icons.mjs",
+    "package": "node scripts/package.mjs",
+    "zip": "npm run build && node scripts/package.mjs"
+  },
+  "dependencies": {
+    "jsbarcode": "^3.11.6",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@types/chrome": "^0.0.268",
+    "@types/jsbarcode": "^3.11.3",
+    "@types/node": "^20.16.10",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "happy-dom": "^20.14.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.1"
+  }
+}

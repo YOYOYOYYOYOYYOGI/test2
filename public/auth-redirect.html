@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Order Label Manager — Sign in</title>
+    <style>
+      body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f7f9fc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; color: #0f172a; }
+      .card { background: #fff; border: 1px solid #e7edf5; border-radius: 16px; box-shadow: 0 12px 32px rgba(15, 23, 42, .08); padding: 28px 34px; text-align: center; max-width: 420px; }
+      .spin { width: 34px; height: 34px; margin: 0 auto 14px; border: 3px solid #e7edf5; border-top-color: #f66916; border-radius: 50%; animation: r .8s linear infinite; }
+      @keyframes r { to { transform: rotate(360deg); } }
+      h1 { font-size: 17px; margin: 0 0 6px; }
+      p { font-size: 13.5px; color: #64748b; margin: 0; line-height: 1.5; word-break: break-all; }
+      .done { color: #16a34a; font-weight: 600; }
+      .err { color: #dc2626; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spin" id="spinner"></div>
+      <h1>Completing Google sign-in…</h1>
+      <p id="msg">You can close this window when it finishes.</p>
+    </div>
+    <script>
+      (function () {
+        var msgEl = document.getElementById('msg');
+        function report(kind, detail) {
+          var el = msgEl;
+          el.textContent = detail;
+          if (kind === 'success') el.className = 'done';
+          if (kind === 'error') el.className = 'err';
+        }
+        function param(k) { return new URLSearchParams(location.hash.slice(1)).get(k) || new URLSearchParams(location.search).get(k); }
+        function finish(status, detail) {
+          try {
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+              chrome.storage.local.set({ __authResult: { status: status, detail: detail, ts: Date.now() } }, function () {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  chrome.runtime.sendMessage({ type: 'AUTH_FLOW_RESULT', payload: { status: status, detail: detail } });
+                }
+                setTimeout(function () { window.close(); }, 300);
+              });
+            } else {
+              setTimeout(function () { window.close(); }, 800);
+            }
+          } catch (e) {
+            document.title = status === 'success' ? 'Sign-in complete' : 'Sign-in failed';
+          }
+        }
+        var error = param('error');
+        var code = param('code');
+        if (error) {
+          var detail = 'Google sign-in was not completed';
+          try { detail = decodeURIComponent(error) + (param('error_description') ? ' — ' + decodeURIComponent(param('error_description')) : ''); } catch (e) {}
+          report('error', detail);
+          finish('error', detail);
+        } else if (code) {
+          report('success', 'Sign-in successful! Saving the session…');
+          finish('success', code);
+        } else {
+          report('error', 'Missing authorization code from Google. Please try connecting again.');
+          finish('error', 'missing_auth_code');
+        }
+      })();
+    </script>
+  </body>
+</html>
