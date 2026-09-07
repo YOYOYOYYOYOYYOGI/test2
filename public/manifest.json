@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Order Label Manager",
+  "version": "1.0.0",
+  "description": "Create orders, save them as rows in Google Sheets, and print or download professional shipping labels.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage", "identity"],
+  "host_permissions": [
+    "https://sheets.googleapis.com/*",
+    "https://oauth2.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Order Label Manager",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
