@@ -1,8 +1,8 @@
 {
   "name": "order-label-manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "description": "Chrome extension — WhatsApp orders -> Google Sheets -> printable shipping labels",
+  "description": "Chrome extension \u2014 WhatsApp orders -> Google Sheets -> printable shipping labels",
   "type": "module",
   "scripts": {
     "dev": "vite",
