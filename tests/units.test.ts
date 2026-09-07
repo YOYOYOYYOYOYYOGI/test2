@@ -69,3 +69,55 @@ ok(text.includes('/Filter /DCTDecode') && text.includes(`/Length ${jpeg.length}`
 
 console.log(`\nPASS: ${pass} FAIL: ${fails.length}`);
 if (fails.length) { fails.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }
+
+/* ---------- Excel (.xlsx) writer ---------- */
+console.log('\n== Excel (xlsx) ==');
+import zlib from 'node:zlib';
+const excel = await import('/home/user/test2/src/services/excel');
+
+function parseZip(b: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  const eocd = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  ok(eocd >= 0, 'zip has EOCD');
+  const count = b.readUInt16LE(eocd + 10);
+  let p = b.readUInt32LE(eocd + 16);
+  for (let i = 0; i < count; i++) {
+    if (b.readUInt32LE(p) !== 0x02014b50) throw new Error('bad central directory');
+    const crc = b.readUInt32LE(p + 16);
+    const sz = b.readUInt32LE(p + 24);
+    const nlen = b.readUInt16LE(p + 28), elen = b.readUInt16LE(p + 30), clen = b.readUInt16LE(p + 32);
+    const name = b.subarray(p + 46, p + 46 + nlen).toString();
+    const off = b.readUInt32LE(p + 42);
+    const lnlen = b.readUInt16LE(off + 26), lelen = b.readUInt16LE(off + 28);
+    const data = b.subarray(off + 30 + lnlen + lelen, off + 30 + lnlen + lelen + sz);
+    ok(data.length === sz && zlib.crc32(data) === crc, `stored entry "${name}" intact (crc32 valid)`);
+    out.set(name, data);
+    p += 46 + nlen + elen + clen;
+  }
+  ok(out.size === count, 'central directory count matches');
+  return out;
+}
+
+const xblob = excel.ordersToXlsx(['Order Number', 'Amount', 'Night Cream Qty'], [['ORD-1001', '1697', '2']]);
+const xbytes = Buffer.from(await xblob.arrayBuffer());
+ok(xbytes.subarray(0, 4).toString() === 'PK\x03\x04', 'xlsx is a ZIP (PK header)');
+const xentries = parseZip(xbytes);
+ok(xentries.size === 6, '6 OOXML parts');
+ok(xentries.has('[Content_Types].xml') && xentries.has('_rels/.rels') && xentries.has('xl/workbook.xml') && xentries.has('xl/_rels/workbook.xml.rels') && xentries.has('xl/styles.xml') && xentries.has('xl/worksheets/sheet1.xml'), 'all required OOXML parts present');
+const sheet1 = xentries.get('xl/worksheets/sheet1.xml')!.toString();
+ok(sheet1.includes('t="inlineStr"') && sheet1.includes('Order Number'), 'header row as inline strings');
+ok(sheet1.includes('<v>1697</v>') && sheet1.includes('<v>2</v>'), 'Amount/Qty as numeric cells');
+ok(sheet1.includes('r="A2"') && sheet1.includes('r="C2"'), 'cell refs correct');
+ok(xentries.get('[Content_Types].xml')!.toString().includes('worksheet+xml'), 'content types lists worksheet');
+ok(xentries.get('xl/workbook.xml')!.toString().includes('name="Orders"'), 'workbook sheet named Orders');
+ok(xentries.get('xl/styles.xml')!.toString().includes('<b/>'), 'bold style for header');
+
+// XML escaping
+const xblob2 = excel.ordersToXlsx(['A&B'], [['<x> "y"']]);
+const s1 = Buffer.from(await xblob2.arrayBuffer());
+const e2 = parseZip(s1);
+const escSheet = e2.get('xl/worksheets/sheet1.xml')!.toString();
+ok(escSheet.includes('A&#38;B') && escSheet.includes('&#60;x&#62; &#34;y&#34;'), 'XML-escaped values');
+
+console.log(`\nPASS: ${pass} FAIL: ${fails.length}`);
+if (fails.length) { fails.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

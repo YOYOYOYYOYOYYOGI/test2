@@ -121,6 +121,14 @@ export function settingsPage(ctx: Ctx): PageResult {
               <option value="a6" ${s.labelSize === 'a6' ? 'selected' : ''}>A6 (105 × 148 mm)</option>
             </select>
           </div>
+          <div class="field"><label class="f">Text Size</label>
+            <select data-k="labelFontScale">
+              <option value="0.9" ${s.labelFontScale === 0.9 ? 'selected' : ''}>Small</option>
+              <option value="1" ${s.labelFontScale === 1 ? 'selected' : ''}>Normal</option>
+              <option value="1.1" ${s.labelFontScale === 1.1 ? 'selected' : ''}>Large</option>
+              <option value="1.25" ${s.labelFontScale === 1.25 ? 'selected' : ''}>Extra Large</option>
+            </select>
+          </div>
         </div>
         <div class="card-sub" style="margin-top:12px">Customer fields shown on the label</div>
         ${fields.length === 0 ? `<div class="muted" style="font-size:12px">No custom fields yet.</div>` : `<div style="columns:2;gap:24px">${fieldChecks}</div>`}
@@ -146,6 +154,7 @@ export function settingsPage(ctx: Ctx): PageResult {
           const input = el as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
           let v: string | number = input.value;
           if (key === 'nextNumber') v = Math.max(1, Math.floor(Number(v) || 1));
+          if (key === 'labelFontScale') v = Number(v) || 1;
           await saveSettings({ ...getSettings(), [key]: v } as Settings);
           toast('Saved.');
         });

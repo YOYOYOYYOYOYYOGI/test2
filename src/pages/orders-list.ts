@@ -1,4 +1,5 @@
 import { customerName, customerPhone, getFields, getOrders, getSettings } from '../services/store';
+import { downloadOrdersExcel } from '../services/excel';
 import { downloadOrderLabel, markLabelPrinted, printOrderLabel } from '../services/label';
 import type { Order } from '../types';
 import { esc, fmtDate, money } from '../utils';
@@ -30,6 +31,9 @@ export function ordersPage(ctx: Ctx, full: boolean): PageResult {
       <div class="toolbar">
         <input type="search" placeholder="Search order no., customer, phone…" data-search value="${esc(q)}">
         <span class="count">${shown.length}${full ? '' : ' recent'} shown</span>
+        <span class="spacer"></span>
+        <button class="btn small" data-act="xl-today" title="Download today's orders as Excel (.xlsx)">Excel · Today</button>
+        <button class="btn small" data-act="xl-all" title="Download all orders as Excel (.xlsx)">Excel · All</button>
       </div>
       ${
         shown.length === 0
@@ -75,6 +79,19 @@ export function ordersPage(ctx: Ctx, full: boolean): PageResult {
         else ctx.go('new');
       });
       root.querySelector('[data-act="tab"]')?.addEventListener('click', () => window.open(chrome.runtime.getURL('orders.html')));
+      root.querySelector('[data-act="xl-today"]')?.addEventListener('click', () => {
+        const today = new Date().toDateString();
+        const todays = getOrders().filter((o) => new Date(o.createdAt).toDateString() === today);
+        if (todays.length === 0) return toast('No orders for today yet.', 'err');
+        downloadOrdersExcel(todays, 'today');
+        toast(`Exported ${todays.length} order${todays.length === 1 ? '' : 's'} to Excel.`, 'ok');
+      });
+      root.querySelector('[data-act="xl-all"]')?.addEventListener('click', () => {
+        const all = getOrders();
+        if (all.length === 0) return toast('No orders yet.', 'err');
+        downloadOrdersExcel(all, 'all');
+        toast(`Exported ${all.length} order${all.length === 1 ? '' : 's'} to Excel.`, 'ok');
+      });
       root.querySelectorAll('[data-id]').forEach((el) =>
         el.addEventListener('click', () => {
           const act = (el as HTMLElement).dataset.act;

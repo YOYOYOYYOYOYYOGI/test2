@@ -60,11 +60,12 @@ Then load `dist/` via **Load unpacked**.
 - **Download Label** saves that order's label as `ORD-1001-label.pdf` — no printing required.
 - The label automatically uses your custom fields; choose exactly which fields and sections appear on it in **Settings → Label**.
 - Optional Code 39 barcode of the order number is included by default.
+- **Text Size** (Small → Extra Large) scales every label font in preview, print and PDF alike.
 
 ## Other pages
 
 - **Dashboard** — today's orders, pending labels, paid/COD counts + shortcuts.
-- **Orders** — search by order number / customer / phone; per-order `Label` `Edit` `Print` `Download`. A full-width orders page opens via the ↗ button (handy in a browser tab).
+- **Orders** — search by order number / customer / phone; per-order `Label` `Edit` `Print` `Download`; **Excel · Today** and **Excel · All** buttons export orders to a real `.xlsx` file (same column layout as your spreadsheet, numeric Amount/Qty cells). A full-width orders page opens via the ↗ button (handy in a browser tab).
 - **Products** — name, SKU, price, active toggle.
 - **Settings → Backup** — export everything as JSON, import a previous export.
 
@@ -82,7 +83,7 @@ Duplicate order numbers are blocked with an `Order already exists.` dialog offer
 ```bash
 npm run dev        # vite dev server (UI only; chrome.* APIs are no-ops outside the extension)
 npm run build      # type-check + production build to dist/ + order-label-manager.zip
-npm test           # 95 automated checks (unit + a DOM test that drives the real built bundle)
+npm test           # 136 automated checks (unit + a DOM test that drives the real built bundle)
 npm run typecheck
 ```
 

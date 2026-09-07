@@ -9,7 +9,8 @@ export const todayStr = (): string => {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 };
 
-export const fmtDate = (iso: string): string => (iso ? iso.slice(0, 10) : '');
+export const fmtDate = (iso: string): string =>
+  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
 export const isValidPhone = (v: string): boolean => /^[+\d][\d\s-]{5,19}$/.test(v.trim());
 

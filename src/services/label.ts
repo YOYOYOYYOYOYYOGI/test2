@@ -5,7 +5,7 @@ import { esc, money } from '../utils';
 import { code39 } from './barcode';
 import { saveOrder } from './store';
 
-export const LABEL_CSS = `
+const rawLabelCss = `
 .label{width:384px;height:576px;background:#fff;color:#0F172A;padding:20px 22px;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;font-family:InterVariable,Inter,system-ui,-apple-system,sans-serif}
 .label.a6{width:397px;height:559px;padding:16px 18px}
 .l-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
@@ -38,6 +38,10 @@ export const LABEL_CSS = `
 .l-foot{margin-top:10px;border-top:1px solid #e3e9f2;padding-top:7px;font-size:9px;color:#5a6b85;text-align:center}
 .label-host{width:-moz-fit-content;width:fit-content;border-radius:10px;overflow:hidden;border:1px solid #e3e9f2;box-shadow:0 10px 30px rgba(15,23,42,.12)}
 `;
+
+// Every label font size scales with the user's "Text Size" setting via --fs
+// (set as an inline style on the .label element; defaults to 1).
+export const LABEL_CSS = rawLabelCss.replace(/font-size:(\d+(?:\.\d+)?)px/g, 'font-size:calc($1px*var(--fs,1))');
 
 function fontFace(cssUrl: string): string {
   return `@font-face{font-family:InterVariable;src:url(${cssUrl}) format('woff2-variations');font-weight:100 900;font-display:swap}`;
@@ -96,7 +100,7 @@ export function labelHTML(order: Order, s: Settings, fields: CustomField[]): str
     )
     .join('');
 
-  return `<div class="label ${s.labelSize === 'a6' ? 'a6' : ''}">
+  return `<div class="label ${s.labelSize === 'a6' ? 'a6' : ''}" style="--fs:${s.labelFontScale || 1}">
   <div class="l-top">
     <div class="l-brand">${s.logo ? `<img class="l-logo" src="${s.logo}" alt="">` : ''}<div><div class="l-biz">${esc(s.businessName)}</div>${sub ? `<div class="l-sub">${sub}</div>` : ''}</div></div>
     <div class="l-onum">${ex.orderNumber ? `<div class="l-on">${esc(order.orderNumber)}</div>` : ''}<div class="l-od">${esc(dateStr)}</div></div>

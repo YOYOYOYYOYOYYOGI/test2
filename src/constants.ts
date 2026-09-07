@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS = {
   orderPrefix: 'ORD-',
   nextNumber: 1001,
   labelSize: '4x6' as const,
+  labelFontScale: 1,
   labelFields: null as string[] | null,
   labelExtras: { orderNumber: true, products: true, quantity: true, payment: true, amount: true, gst: false, barcode: true },
   clientId: '',

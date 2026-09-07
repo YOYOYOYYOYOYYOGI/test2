@@ -240,7 +240,7 @@ await flush();
 ok($('[data-total]')!.textContent === '₹998', 'total updates with qty (₹998)');
 click('[data-act="addprod"]');
 await flush();
-console.log('  [pid1] modals before:', document.querySelectorAll('.modal-wrap').length); $$('.plist [data-pid]')[1].click(); console.log('  [pid1] modals after:', document.querySelectorAll('.modal-wrap').length); // Face Serum ₹699
+$$('.plist [data-pid]')[1].click(); // Face Serum ₹699
 await flush();
 ok($('[data-total]')!.textContent === '₹1,697', 'multi-product total ₹1,697');
 
@@ -280,14 +280,12 @@ setVal('[data-fid="f_state"]', 'Gujarat');
 setVal('[data-fid="f_pincode"]', '380001');
 click('[data-act="addprod"]');
 await flush();
-console.log('  [pid0] modals before:', document.querySelectorAll('.modal-wrap').length, 'disabled0=', ($$('.plist [data-pid]')[0] as HTMLButtonElement).disabled, 'parentConnected=', $$('.plist [data-pid]')[0].closest('.modal-wrap')!.isConnected);
 $$('.plist [data-pid]')[0].click();
-console.log('  [pid0] modals after:', document.querySelectorAll('.modal-wrap').length, 'connectedStill=', $$('.plist [data-pid]')[0]?.closest('.modal-wrap')?.isConnected, 'rowsNow=', $$('[data-qty]').length);
 await flush();
 setVal('[data-qty="0"]', '2');
 click('[data-act="addprod"]');
 await flush();
-console.log('  [pid1] modals before:', document.querySelectorAll('.modal-wrap').length); $$('.plist [data-pid]')[1].click(); console.log('  [pid1] modals after:', document.querySelectorAll('.modal-wrap').length);
+$$('.plist [data-pid]')[1].click();
 await flush();
 click('[data-act="save"]');
 await flush(80);
@@ -366,18 +364,13 @@ ok(($('[data-onum]') as HTMLInputElement).value === 'ORD-1002', 'counter bumped 
 setVal('[data-onum]', 'ORD-1001');
 setVal('[data-fid="f_name"]', 'Dup Test');
 setVal('[data-fid="f_phone"]', '9000000001');
-console.log('DEBUG pre-addprod: modal-wraps=', document.querySelectorAll('.modal-wrap').length, 'items rows=', $$('[data-qty]').length, 'titles=', Array.from(document.querySelectorAll('.modal-wrap h3')).map((x) => x.textContent));
 click('[data-act="addprod"]');
 await flush();
-console.log('DEBUG post-addprod: modal-wraps=', document.querySelectorAll('.modal-wrap').length, 'pids=', $$('.plist [data-pid]').length, 'disabled=', $$('.plist [data-pid]').map(b => (b as HTMLButtonElement).disabled));
-console.log('  [pid0] modals before:', document.querySelectorAll('.modal-wrap').length, 'disabled0=', ($$('.plist [data-pid]')[0] as HTMLButtonElement).disabled, 'parentConnected=', $$('.plist [data-pid]')[0].closest('.modal-wrap')!.isConnected);
 $$('.plist [data-pid]')[0].click();
-console.log('  [pid0] modals after:', document.querySelectorAll('.modal-wrap').length, 'connectedStill=', $$('.plist [data-pid]')[0]?.closest('.modal-wrap')?.isConnected, 'rowsNow=', $$('[data-qty]').length);
 await flush();
-console.log('DEBUG post-pid: modal-wraps=', document.querySelectorAll('.modal-wrap').length, 'items rows=', $$('[data-qty]').length, 'total=', $('[data-total]')?.textContent);
 click('[data-act="save"]');
 await flush();
-ok(document.body.textContent!.includes('Order already exists.'), 'duplicate dialog appears', 'BODY: ' + document.body.textContent!.slice(-600));
+ok(document.body.textContent!.includes('Order already exists.'), 'duplicate dialog appears');
 ok($$('.modal [data-open]').length === 1 && $$('.modal [data-edit]').length === 1, 'offers Open Order / Edit Order');
 ok(appendedRows.length === 1, 'NO duplicate row was written');
 $('.modal [data-open]')!.click();
@@ -419,13 +412,92 @@ if (mapSel) {
   ok((memStore.get('settings') as Record<string, unknown>).customMap && Object.values((memStore.get('settings') as Record<string, unknown>).customMap as object)[0] === 'Notes', 'custom column mapping saved');
 }
 
+console.log('\n== Excel export (today / all), text size, logo ==');
+// insert an order from 2 days ago directly into storage
+const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString();
+(memStore.get('orders') as unknown[]).push({
+  id: 'o_old', orderNumber: 'ORD-0999', customerData: { f_name: 'Old Customer', f_phone: '9000000099' },
+  items: [{ productId: 'p_night', name: 'Night Cream', sku: 'NC-01', price: 499, qty: 1 }],
+  paymentStatus: 'Paid', total: 499, createdAt: twoDaysAgo, updatedAt: twoDaysAgo, labelPrinted: true,
+});
+click('[data-route="orders"]');
+await flush();
+ok($$('.tbl tbody tr').length === 2, 'old order now listed');
+
+function parseTestZip(b: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  const eocd = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const count = b.readUInt16LE(eocd + 10);
+  let p = b.readUInt32LE(eocd + 16);
+  for (let i = 0; i < count; i++) {
+    const sz = b.readUInt32LE(p + 24);
+    const nlen = b.readUInt16LE(p + 28), elen = b.readUInt16LE(p + 30), clen = b.readUInt16LE(p + 32);
+    const name = b.subarray(p + 46, p + 46 + nlen).toString();
+    const off = b.readUInt32LE(p + 42);
+    const lnlen = b.readUInt16LE(off + 26), lelen = b.readUInt16LE(off + 28);
+    out.set(name, b.subarray(off + 30 + lnlen + lelen, off + 30 + lnlen + lelen + sz));
+    p += 46 + nlen + elen + clen;
+  }
+  return out;
+}
+
+capturedBlob = null;
+click('[data-act="xl-today"]');
+await flush();
+ok(capturedBlob !== null, 'Excel · Today downloads a file', 'BODY:' + document.body.textContent!.slice(-260));
+let xbytes = Buffer.from(await (capturedBlob as Blob).arrayBuffer());
+ok(xbytes.subarray(0, 4).toString() === 'PK\x03\x04', 'Excel file is a real .xlsx (ZIP)');
+let sheet1 = parseTestZip(xbytes).get('xl/worksheets/sheet1.xml')!.toString();
+ok(sheet1.includes('ORD-1001') && !sheet1.includes('ORD-0999'), 'Excel Today contains ONLY today\'s order');
+ok(sheet1.includes('Rahul Patel') && sheet1.includes('<v>1697</v>'), 'Excel Today has fields + numeric amount');
+ok(sheet1.includes('<v>2</v>'), 'Excel Today has per-product qty numbers');
+
+capturedBlob = null;
+click('[data-act="xl-all"]');
+await flush();
+xbytes = Buffer.from(await (capturedBlob as Blob).arrayBuffer());
+sheet1 = parseTestZip(xbytes).get('xl/worksheets/sheet1.xml')!.toString();
+ok(sheet1.includes('ORD-1001') && sheet1.includes('ORD-0999'), 'Excel All contains every order');
+ok(sheet1.includes('Old Customer'), 'Excel All includes old order fields');
+
+// Dashboard today count reflects local-date filtering
+click('[data-route="dashboard"]');
+await flush();
+ok($$('.stat .v')[0].textContent === '1', "dashboard Today's Orders = 1 (old order excluded)");
+
+// Label text size setting
+click('[data-route="settings"]');
+await flush();
+setVal('[data-k="labelFontScale"]', '1.1', 'change');
+await flush();
+ok((memStore.get('settings') as Record<string, unknown>).labelFontScale === 1.1, 'text size setting persisted');
+// Persistent logo
+(memStore.get('settings') as Record<string, unknown> as Record<string, unknown>).logo = 'data:image/png;base64,iVBORw0KGgo=';
+click('[data-route="settings"]');
+await flush();
+ok($('.logo-row img') !== null, 'logo persists and renders in Settings');
+click('[data-route="orders"]');
+await flush();
+$$('.tbl [data-act="label"]')[0].click();
+await flush();
+const shadow2 = ($('[data-stage]').firstElementChild as unknown as { shadowRoot: ShadowRoot }).shadowRoot;
+ok(shadow2.innerHTML.includes('--fs:1.1'), 'label preview uses the custom text size (--fs:1.1)');
+ok(shadow2.innerHTML.includes('<img class="l-logo"'), 'label preview includes the persisted logo');
+ok((shadow2.innerHTML.match(/calc\(16px\*var\(--fs,1\)\)/g) || []).length >= 1, 'label CSS scales font sizes via --fs');
+click('[data-act="print"]');
+await flush(150);
+const pw2 = printWindows[printWindows.length - 1];
+ok(pw2 && pw2.html.includes('--fs:1.1') && pw2.html.includes('calc(16px*var(--fs,1)'), 'printed/PDF label uses the same custom text size');
+
 console.log('\n== Export backup ==');
+click('[data-route="settings"]');
+await flush();
 capturedBlob = null;
 click('[data-act="export"]');
 await flush();
 ok(capturedBlob !== null, 'backup exported');
 const backup = capturedBlob ? JSON.parse(Buffer.from(await (capturedBlob as Blob).arrayBuffer()).toString()) : {};
-ok(Array.isArray(backup.orders) && backup.orders.length === 1, 'backup contains orders');
+ok(Array.isArray(backup.orders) && backup.orders.length === 2, 'backup contains both orders');
 ok(Array.isArray(backup.fields) && backup.fields.length === 7, 'backup contains fields');
 ok(Array.isArray(backup.products) && backup.products.length === 4, 'backup contains products');
 
@@ -436,7 +508,7 @@ const ordersAssets = readdirSync(new URL('../dist/assets', import.meta.url).path
 await import(new URL('../dist/assets/', import.meta.url).pathname + ordersAssets[0]);
 await flush(150);
 ok(document.body.textContent!.includes('Order Label Manager — Orders'), 'orders tab renders');
-ok($$('.tbl tbody tr').length === 1, 'orders tab lists orders');
+ok($$('.tbl tbody tr').length === 2, 'orders tab lists both orders');
 const dl = $$('.tbl [data-act="download"]')[0];
 capturedBlob = null;
 dl.click();

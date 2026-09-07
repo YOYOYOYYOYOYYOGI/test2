@@ -61,6 +61,7 @@ export interface Settings {
   orderPrefix: string;
   nextNumber: number;
   labelSize: LabelSize;
+  labelFontScale: number; // 0.9 small … 1.25 extra large
   labelFields: string[] | null; // ids shown on the label; null = all fields (default)
   labelExtras: { orderNumber: boolean; products: boolean; quantity: boolean; payment: boolean; amount: boolean; gst: boolean; barcode: boolean };
   clientId: string; // Google OAuth Client ID (not a secret)

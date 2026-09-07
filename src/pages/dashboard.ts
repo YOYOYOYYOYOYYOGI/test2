@@ -1,14 +1,14 @@
 import { customerName, getOrders } from '../services/store';
-import { esc, money, todayStr } from '../utils';
+import { esc, money } from '../utils';
 import type { Ctx, PageResult } from './ctx';
 import { resetDraft } from './order-form';
 
 export function dashboardPage(ctx: Ctx): PageResult {
   const orders = getOrders();
-  const t = todayStr();
+  const today = new Date().toDateString();
   const count = (f: (o: (typeof orders)[number]) => boolean) => orders.filter(f).length;
   const stats = [
-    ["Today's Orders", count((o) => o.createdAt.slice(0, 10) === t)],
+    ["Today's Orders", count((o) => new Date(o.createdAt).toDateString() === today)],
     ['Pending Labels', count((o) => !o.labelPrinted)],
     ['Paid Orders', count((o) => o.paymentStatus === 'Paid')],
     ['COD Orders', count((o) => o.paymentStatus === 'COD')],
