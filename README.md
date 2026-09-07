@@ -37,6 +37,10 @@ Then load `dist/` via **Load unpacked**.
 4. **Settings → Google Sheets** — paste your spreadsheet link, add your OAuth Client ID (one-time, 2 minutes — steps are shown right in Settings), click **Connect Spreadsheet**. Existing matching columns are reused; only missing columns are created. You can map any field to a different existing column.
 5. **New Order** — fill the fields, pick products + quantities, choose payment status, **Save Order**.
 
+## Label preview (sample data)
+
+![Shipping label](docs/label-preview.png)
+
 ## Google Sheets: the one rule
 
 | Order Number | Customer Name | Phone      | Address    | City      | … | Night Cream Qty | Face Serum Qty |
