@@ -82,6 +82,24 @@ export interface CustomerData {
   pincode: string;
 }
 
+/** A record imported from an old customer/order sheet. Kept SEPARATE from
+ *  new orders — used only for WhatsApp lookup + autofill on the New Order
+ *  page. Never counted in dashboard sales/orders or Excel exports. */
+export interface OldOrderRecord {
+  id: string;
+  /** old order number as imported (e.g. "4673-4312-3542") — unique per row */
+  orderNumber: string;
+  name: string;
+  address: string;
+  /** raw whatsapp/mobile as imported */
+  whatsapp: string;
+  /** extra columns (header -> value) for autofill when they match fields */
+  extras?: Record<string, string>;
+  /** source row in the uploaded file (1-based, header = 1) */
+  sourceRow: number;
+  importedAt: number;
+}
+
 export interface OrderProduct {
   productId: string;
   productName: string;
@@ -158,6 +176,9 @@ export interface Order {
   totalAmount: number;
   /** delivery charge included in totalAmount (0 when not configured) */
   deliveryCharge?: number;
+  /** old order number this new order was created from (e.g. 4673-4312-3542),
+   *  visible separately from the composed new order number */
+  previousOrderNumber?: string;
   printed: PrintedStatusValue;
   printedAt: number | null;
   createdAt: number;

@@ -3,7 +3,7 @@
 // chrome.storage.local through the storage service.
 // ---------------------------------------------------------------------------
 import { create } from 'zustand';
-import type { Order, OrderField, Product, Settings, Toast } from '../types';
+import type { OldOrderRecord, Order, OrderField, Product, Settings, Toast } from '../types';
 import { LS, storage } from '../services/storage';
 import { makeDefaultSettingsWithTemplate } from '../services/config';
 
@@ -13,6 +13,7 @@ interface AppState {
   fields: OrderField[];
   products: Product[];
   orders: Order[];
+  oldOrders: OldOrderRecord[];
   counter: number;
   setupComplete: boolean;
 
@@ -36,6 +37,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   fields: [],
   products: [],
   orders: [],
+  oldOrders: [],
   counter: 0,
   setupComplete: false,
 
@@ -53,6 +55,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       fields: s.fields,
       products: s.products,
       orders: s.orders,
+      oldOrders: s.oldOrders,
       counter: s.nextOrderNumber,
       setupComplete: s.setupDone,
       ready: true,
@@ -66,6 +69,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           changes[LS.settings] ||
           changes[LS.fields] ||
           changes[LS.products] ||
+          changes[LS.oldOrders] ||
           changes[LS.nextOrderNumber] ||
           changes[LS.setupDone]
         ) {
@@ -81,6 +85,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       settings: s.settings,
       fields: s.fields,
       products: s.products,
+      orders: s.orders,
+      oldOrders: s.oldOrders,
       counter: s.nextOrderNumber,
       setupComplete: s.setupDone,
     });

@@ -2,7 +2,7 @@
 // Storage service — single wrapper around chrome.storage.local
 // (local = browser profile data; NOT the cloud spreadsheet)
 // ---------------------------------------------------------------------------
-import type { Order, OrderField, Product, Settings } from '../types';
+import type { OldOrderRecord, Order, OrderField, Product, Settings } from '../types';
 import { defaultSettings } from '../lib/constants';
 
 function deepMerge<T>(base: T, override: unknown): T {
@@ -35,6 +35,8 @@ export const LS = {
   sheetCachedOrders: 'olm.sheetCachedOrders',
   demoSeed: 'olm.demoSeed',
   setupDone: 'olm.setupDone',
+  /** imported historical customer/order records (old data, kept separate) */
+  oldOrders: 'olm.oldOrders',
 };
 
 export interface StoredState {
@@ -43,6 +45,7 @@ export interface StoredState {
   fields?: OrderField[];
   products?: Product[];
   orders?: Order[];
+  oldOrders?: OldOrderRecord[];
   nextOrderNumber?: number;
   pendingOps?: unknown[];
   sheetHeaders?: Record<string, number>;
@@ -57,6 +60,7 @@ export interface KeyedState {
   fields: OrderField[];
   products: Product[];
   orders: Order[];
+  oldOrders: OldOrderRecord[];
   nextOrderNumber: number;
   setupDone: boolean;
 }
@@ -86,7 +90,7 @@ export const storage = {
 
   async loadAll(): Promise<KeyedState> {
     const raw = (await this.area.get([
-      LS.settings, LS.fields, LS.products, LS.orders, LS.nextOrderNumber, LS.setupDone,
+      LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone,
     ])) as Record<string, unknown>;
     const settings = deepMerge(defaultSettings(), (raw[LS.settings] as Settings) ?? {});
     return {
@@ -94,6 +98,7 @@ export const storage = {
       fields: Array.isArray(raw[LS.fields]) ? (raw[LS.fields] as OrderField[]) : [],
       products: Array.isArray(raw[LS.products]) ? (raw[LS.products] as Product[]) : [],
       orders: Array.isArray(raw[LS.orders]) ? (raw[LS.orders] as Order[]) : [],
+      oldOrders: Array.isArray(raw[LS.oldOrders]) ? (raw[LS.oldOrders] as OldOrderRecord[]) : [],
       nextOrderNumber:
         typeof raw[LS.nextOrderNumber] === 'number'
           ? (raw[LS.nextOrderNumber] as number)

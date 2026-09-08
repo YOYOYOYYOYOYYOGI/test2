@@ -48,10 +48,14 @@ function cellRef(col: number, row: number): string {
 function numCellText(v: number): string {
   if (!Number.isFinite(v)) return '0';
   const abs = Math.abs(v);
-  // JS would use exponent notation past 1e21; Excel <v> cannot parse "1e+21".
-  // Those are effectively out of range for a business order sheet anyway.
-  if (abs >= 1e15) return Math.round(v).toFixed(0);
-  return String(Math.round(v * 1e9) / 1e9); // avoid long float noise
+  // Whole numbers (order counts, 10-digit phone numbers) are written exactly —
+  // never through a float-noise trimmer, which mangles integers ≥ ~9e9 when
+  // multiplied by 1e9 (beyond 2^53).
+  if (Number.isInteger(v)) {
+    // JS would use exponent notation past 1e21; Excel <v> cannot parse "1e+21".
+    return abs >= 1e15 ? Math.round(v).toFixed(0) : String(v);
+  }
+  return String(Math.round(v * 1e6) / 1e6); // trim float noise on prices/amounts
 }
 
 // ---------------------------------------------------------------------------

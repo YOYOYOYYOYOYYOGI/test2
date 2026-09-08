@@ -260,6 +260,19 @@ After enabling products Night Cream & Face Serum + saving orders:
   dashboard Product Sales), **editable Label Name** per product (separate from
   the product name, shown on customer labels; historical orders keep the info
   saved with them)
+- **Old Customer Data** (Settings → Old Data): import an old customer/order
+  **Excel (.xlsx) or CSV** file — required columns Order Number, Name,
+  Address, Whatsapp Number (clear “Required column missing: …” errors, empty
+  rows skipped, extra columns kept); stored SEPARATELY from new orders and
+  never counted in dashboards/sales/Excel exports
+- New Order page: typing a WhatsApp number debounce-searches the imported
+  history (normalized +91/space/hyphen handling) and shows **all** previous
+  orders for that number — pick one to autofill Name/Address/extra matching
+  fields, and the auto number becomes
+  `14000-4673-4312-3542` (auto counter + old order number, counter keeps
+  counting 14001/14002…); the old order number is saved on the order
+  (Previous Order Number column in the spreadsheet & Excel), unknown numbers
+  just show “No previous order found.” — never an error
 - Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
   **Download All Orders** (`all-orders.xlsx`) — real `.xlsx` files with bold
   headers, frozen header row, auto-sized columns, dynamic columns from your

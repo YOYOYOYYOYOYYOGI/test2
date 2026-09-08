@@ -186,7 +186,7 @@ export const DEMO_COLUMNS = [
   'Order Number', 'Customer Name', 'WhatsApp Number', 'Mobile Number', 'Address', 'City', 'State',
   'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Payment Amount', 'Order Status',
   'Night Cream Qty', 'Day Cream Qty', 'Face Serum Qty', 'Sunscreen Qty', 'Face Wash Qty',
-  'Delivery Charge', 'Total', 'Label Status', 'Printed At', 'Created At', 'Updated At',
+  'Delivery Charge', 'Total', 'Previous Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At',
 ];
 
 export function demoOrders(): Order[] {

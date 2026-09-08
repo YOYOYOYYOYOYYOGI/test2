@@ -22,6 +22,8 @@ export interface OrderInput {
   customFields?: Record<string, string | number | boolean>;
   /** delivery charge to add to the product total (already evaluated) */
   deliveryCharge?: number;
+  /** old order this new order was created from (shown separately) */
+  previousOrderNumber?: string;
 }
 
 export interface OrderCtx {
@@ -84,7 +86,14 @@ export function makeOrderNumber(counter: number, settings: Settings): string {
   return `${p}${body}`;
 }
 
-/** Bump the counter beyond any existing manual order number (prefix-aware). */
+/**
+ * The counter implied by existing orders. Prefix-aware; reads the leading
+ * numeric run of the rest, so BOTH plain numbers (ORD-1001) and composed
+ * numbers (ORD-14000-4673-4312-3542 — auto number + old order suffix) move
+ * the counter forward, while foreign prefixes and non-numeric numbers are
+ * ignored. The counter NEVER goes backwards, so deleting an order can never
+ * cause a number reuse.
+ */
 export function normalizeCounter(orders: Order[], settings: Settings): number {
   const prefix = (settings.order.prefix || '').toLowerCase();
   let max = 0;
@@ -92,7 +101,8 @@ export function normalizeCounter(orders: Order[], settings: Settings): number {
     const n = o.orderNumber.toLowerCase();
     if (!n.startsWith(prefix)) continue;
     const rest = n.slice(prefix.length).replace(/^0+/, '');
-    if (/^\d+$/.test(rest)) max = Math.max(max, parseInt(rest, 10));
+    const m = /^(\d+)/.exec(rest);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   const start = settings.order.startNumber - 1;
   return Math.max(start, max, 0) + 1;
@@ -124,6 +134,7 @@ function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; n
     orderStatus: input.orderStatus,
     notes: (input.notes ?? '').trim(),
     deliveryCharge: Math.round((Number(input.deliveryCharge) || 0) * 100) / 100,
+    previousOrderNumber: (input.previousOrderNumber ?? '').trim() || undefined,
     totalAmount: Math.round((computeTotal(products) + (Number(input.deliveryCharge) || 0)) * 100) / 100,
     printed: 'Not Printed',
     printedAt: null,

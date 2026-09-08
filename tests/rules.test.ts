@@ -182,16 +182,19 @@ describe('filtered Excel export + money columns', () => {
   });
   const c = ctx();
 
-  it('excel export always ends with Delivery Charge + Total (grand total incl. delivery)', () => {
+  it('excel export ends with Delivery Charge + Total + Previous Order Number', () => {
     const headers = excelHeaders(c);
-    expect(headers.slice(-2)).toEqual(['Delivery Charge', 'Total']);
+    expect(headers.slice(-3)).toEqual(['Delivery Charge', 'Total', 'Previous Order Number']);
     const o = mk('ORD-1001', 1000, 100);
+    o.previousOrderNumber = '4673-4312-3542';
     const row = excelGrid([o], c)[1];
-    expect(row[row.length - 2]).toBe(100);
-    expect(row[row.length - 1]).toBe(599);
+    expect(row[row.length - 3]).toBe(100);
+    expect(row[row.length - 2]).toBe(599);
+    expect(row[row.length - 1]).toBe('4673-4312-3542');
     const free = excelGrid([mk('ORD-1002', 1001, 0)], c)[1];
-    expect(free[free.length - 2]).toBe(0);
-    expect(free[free.length - 1]).toBe(499);
+    expect(free[free.length - 3]).toBe(0);
+    expect(free[free.length - 2]).toBe(499);
+    expect(free[free.length - 1]).toBe('');
   });
 
   it('Download Filtered exports exactly the supplied (already filtered) rows', async () => {

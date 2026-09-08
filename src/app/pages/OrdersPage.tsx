@@ -411,6 +411,7 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
         <div>
           <h4 style={{ fontSize: 13, marginBottom: 8, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Status</h4>
           <p><Badge color={orderStatusColor(order.orderStatus)}>{order.orderStatus}</Badge></p>
+          {order.previousOrderNumber && <p className="small">Previous order: <span className="mono">{order.previousOrderNumber}</span></p>}
           <p className="small">Label: {order.printed}{order.printedAt ? ` · ${formatDate(order.printedAt, true)}` : ''}</p>
           <p className="small muted">Created {formatDate(order.createdAt, true)}<br />Updated {formatDate(order.updatedAt, true)}</p>
         </div>

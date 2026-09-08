@@ -113,9 +113,10 @@ export function excelColumns(ctx: ExportCtx): ColumnDef[] {
       return line ? round2(line.quantity) : 0; // zero-fill, same as the sheet
     });
   }
-  // Money columns mirror the spreadsheet's system columns.
+  // System columns mirror the spreadsheet's fixed columns.
   push('Delivery Charge', (o) => orderDelivery(o));
   push('Total', (o) => orderTotal(o));
+  push('Previous Order Number', (o) => o.previousOrderNumber ?? '');
   return cols;
 }
 

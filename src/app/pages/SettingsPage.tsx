@@ -14,8 +14,9 @@ import { LabelSheetComponent, labelSizePx } from '../../components/label/LabelSh
 import { buildLabelModel } from '../../components/label/labelModel';
 import { LABEL_FONT_FAMILIES, LABEL_FONT_KEYS, LABEL_FONT_LABELS, labelFontFamily, labelGlobalFontSize } from '../../components/label/labelStyle';
 import { DeliveryRulesTab, MatchingRulesTab } from './settingsRules';
+import { OldDataTab } from './settingsOldData';
 
-type Tab = 'business' | 'spreadsheet' | 'order' | 'label' | 'delivery' | 'matching' | 'backup';
+type Tab = 'business' | 'spreadsheet' | 'order' | 'label' | 'delivery' | 'matching' | 'old' | 'backup';
 
 export function SettingsPage({ go }: { go: (r: string) => void }) {
   const [tab, setTab] = useState<Tab>('business');
@@ -26,6 +27,7 @@ export function SettingsPage({ go }: { go: (r: string) => void }) {
     { id: 'label', label: 'Label Design' },
     { id: 'delivery', label: 'Delivery' },
     { id: 'matching', label: 'Duplicates' },
+    { id: 'old', label: 'Old Data' },
     { id: 'backup', label: 'Backup & Data' },
   ];
   return (
@@ -45,6 +47,7 @@ export function SettingsPage({ go }: { go: (r: string) => void }) {
       {tab === 'label' && <LabelTab />}
       {tab === 'delivery' && <DeliveryRulesTab />}
       {tab === 'matching' && <MatchingRulesTab />}
+      {tab === 'old' && <OldDataTab />}
       {tab === 'backup' && <BackupTab go={go} />}
     </div>
   );
@@ -615,7 +618,7 @@ function BackupTab({ go }: { go: (r: string) => void }) {
   const resetAll = async () => {
     setBusy(true);
     try {
-      await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.nextOrderNumber, LS.pendingOps, LS.setupDone, LS.sheetHeaders, LS.lastRow, LS.demoSeed]);
+      await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.pendingOps, LS.setupDone, LS.sheetHeaders, LS.lastRow, LS.demoSeed]);
       window.location.hash = '#/';
       window.location.reload();
     } finally { setBusy(false); }

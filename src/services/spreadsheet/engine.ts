@@ -167,8 +167,8 @@ export class SpreadsheetEngine {
         if (desired[i] !== undefined) {
           // For product qty columns and system columns we always own the cell.
           const owned =
-            lower === 'total' || lower === 'delivery charge' || lower === 'label status' ||
-            lower === 'printed at' || lower === 'created at' || lower === 'updated at' ||
+            lower === 'total' || lower === 'delivery charge' || lower === 'previous order number' ||
+            lower === 'label status' || lower === 'printed at' || lower === 'created at' || lower === 'updated at' ||
             / qty$/.test(lower) || desired[i] !== '';
           if (owned) return desired[i];
         }
@@ -180,8 +180,8 @@ export class SpreadsheetEngine {
     for (let i = 0; i < names.length; i += 1) {
       const lower = (names[i] || '').trim().toLowerCase();
       const ownedCol =
-        lower === 'total' || lower === 'delivery charge' || lower === 'label status' ||
-        lower === 'printed at' || lower === 'created at' || lower === 'updated at' ||
+        lower === 'total' || lower === 'delivery charge' || lower === 'previous order number' ||
+        lower === 'label status' || lower === 'printed at' || lower === 'created at' || lower === 'updated at' ||
         / qty$/.test(lower);
       if (ownedCol) merged[i] = desired[i] ?? merged[i];
       else if (desired[i] !== '' && merged[i] !== desired[i]) merged[i] = desired[i]!;

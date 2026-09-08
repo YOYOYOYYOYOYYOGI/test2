@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
-import type { Order, OrderField, Product, Settings } from '../../types';
+import type { OldOrderRecord, Order, OrderField, Product, Settings } from '../../types';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, formatMoney } from '../../lib/constants';
 import { Button, Checkbox, Field, Input, Modal, Select, TextArea } from '../../components/ui';
 import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons';
@@ -12,6 +12,8 @@ import { COMPUTED_FIELD_KEYS } from '../../services/config';
 import { makeOrderNumber, nextCounter } from '../../services/orders';
 import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
 import { scanMatches, type MatchHit } from '../../lib/matching';
+import { extraValueForField } from '../../services/oldOrders';
+import { OldOrderLookup } from '../../components/orders/OldOrderLookup';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 
@@ -100,17 +102,22 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const fields = useAppStore((s) => s.fields);
   const products = useAppStore((s) => s.products);
   const orders = useAppStore((s) => s.orders);
+  const oldOrders = useAppStore((s) => s.oldOrders);
   const counter = useAppStore((s) => s.counter);
   const refreshConfig = useAppStore((s) => s.refreshConfig);
   const refreshOrders = useAppStore((s) => s.refreshOrders);
 
   const editing = useMemo(() => orders.find((o) => o.id === editId), [orders, editId]);
+  const isNewFlow = !editId; // old-order lookup only on the New Order screen
   const [form, setForm] = useState<FormState>(() => (editing ? orderToForm(editing, settings) : emptyForm(settings, counter, fields)));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [duplicate, setDuplicate] = useState<Order | null>(null);
   const [matchHits, setMatchHits] = useState<MatchHit[] | null>(null);
   const [savedOrder, setSavedOrder] = useState<Order | null>(null);
+  /** old order number selected via the WhatsApp lookup (appended to the auto
+   *  order number; stored separately as previousOrderNumber) */
+  const [selectedOld, setSelectedOld] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const first = useRef(true);
@@ -127,6 +134,58 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     first.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // keep the automatic number in sync: counter + optional old-order suffix
+  useEffect(() => {
+    if (form.manualNumber) return;
+    const base = makeOrderNumber(counter, settings);
+    setForm((f) => (f.manualNumber ? f : { ...f, orderNumber: selectedOld ? `${base}-${selectedOld}` : base }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counter, selectedOld]);
+
+  /** Autofill the form from an imported old order + append its number. */
+  const applyOldRecord = (rec: OldOrderRecord) => {
+    const cust = { ...form.customer };
+    const custom = { ...form.custom };
+    const patch: Partial<FormState> = {};
+    if (rec.name) cust.name = rec.name;
+    if (rec.address) cust.address = rec.address;
+    if (rec.whatsapp) cust.whatsapp = rec.whatsapp;
+    for (const f of sortedFields) {
+      const k = String(f.key);
+      if (['customerName', 'customerWhatsapp', 'customerAddress', 'orderNumber'].includes(k)) continue;
+      if (COMPUTED_FIELD_KEYS.has(k)) continue;
+      if (f.type === 'checkbox' || f.type === 'product' || f.type === 'quantity') continue;
+      if (k === 'customerMobile' && cust.mobile.trim()) continue; // never overwrite a typed number
+      const v = extraValueForField(rec, f, settings);
+      if (!v) continue;
+      switch (k) {
+        case 'customerMobile': cust.mobile = v; break;
+        case 'customerCity': cust.city = v; break;
+        case 'customerState': cust.state = v; break;
+        case 'customerPincode': cust.pincode = v; break;
+        case 'paymentStatus': if ((PAYMENT_STATUSES as string[]).includes(v)) patch.paymentStatus = v; break;
+        case 'paymentMethod': if ((PAYMENT_METHODS as string[]).includes(v)) patch.paymentMethod = v; break;
+        case 'orderStatus': if ((ORDER_STATUSES as string[]).includes(v)) patch.orderStatus = v; break;
+        case 'transactionId': patch.transactionId = v; break;
+        case 'paymentAmount': patch.paymentAmount = v; break;
+        case 'notes': patch.notes = v; break;
+        default:
+          if (k === 'custom') custom[f.id] = v;
+      }
+    }
+    setSelectedOld(rec.orderNumber);
+    setForm((prev) => ({
+      ...prev,
+      ...patch,
+      customer: cust,
+      custom,
+      orderNumber: prev.manualNumber
+        ? prev.orderNumber
+        : `${makeOrderNumber(counter, settings)}-${rec.orderNumber}`,
+    }));
+    setErrors({});
+  };
 
   // "duplicate order" prefill (#/new?dupe=<id>)
   useEffect(() => {
@@ -256,6 +315,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         notes: form.notes,
         customFields: customValues,
         deliveryCharge: total.delivery,
+        previousOrderNumber: editing ? (selectedOld ?? editing.previousOrderNumber) : (selectedOld ?? undefined),
       };
       const svc = await import('../../services/orders');
       if (editing) {
@@ -414,9 +474,17 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                     )}
                   </div>
                   <span className="hint">
-                    {form.manualNumber && !settings.order.manualNumbering ? 'Manual override for this order only.' : !form.manualNumber ? `Auto — next is ${makeOrderNumber(counter, settings)}` : 'Manual numbering is on (Settings → Order).'}
+                    {form.manualNumber && !settings.order.manualNumbering ? 'Manual override for this order only.' : !form.manualNumber ? `Auto — next is ${form.orderNumber}` : 'Manual numbering is on (Settings → Order).'}
                   </span>
                   {errors.orderNumber && <span className="error-text">{errors.orderNumber}</span>}
+                  {selectedOld && !form.manualNumber && (
+                    <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, background: 'var(--primary-soft)', color: 'var(--primary-dark)', padding: '2px 8px', borderRadius: 999, fontWeight: 600 }}>
+                        Previous Order: <span className="mono">{selectedOld}</span>
+                      </span>
+                      <Button size="sm" variant="ghost" title="Remove the old-order number — keep only the auto number" onClick={() => setSelectedOld(null)}>✕ remove</Button>
+                    </div>
+                  )}
                 </>
               )}
               {!orderNoField && (
@@ -442,7 +510,16 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           <div className="form-grid">
             {sortedFields.filter((f) => ['customerName', 'customerWhatsapp', 'customerMobile', 'customerPincode'].includes(String(f.key))).map((f) =>
               f.key === 'customerName' ? widget(f, f.key, form.customer.name, (v) => setCust({ name: String(v) }), errors['customer.name'])
-                : f.key === 'customerWhatsapp' ? widget(f, f.key, form.customer.whatsapp, (v) => setCust({ whatsapp: String(v) }), errors['customer.whatsapp'])
+                : f.key === 'customerWhatsapp' ? (
+                  <Field key={f.id} label={f.name} required={f.required} error={errors['customer.whatsapp']} hint="10-digit Indian number, or +91 …">
+                    <Input type="tel" inputMode="tel" placeholder="9876543210" value={form.customer.whatsapp}
+                      invalid={Boolean(errors['customer.whatsapp'])}
+                      onChange={(e) => setCust({ whatsapp: e.target.value })} />
+                    {isNewFlow && (
+                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} chosenNumber={selectedOld} onPick={applyOldRecord} />
+                    )}
+                  </Field>
+                )
                   : f.key === 'customerMobile' ? widget(f, f.key, form.customer.mobile, (v) => setCust({ mobile: String(v) }), errors['customer.mobile'])
                     : f.key === 'customerPincode' ? widget(f, f.key, form.customer.pincode, (v) => setCust({ pincode: String(v) }), errors['customer.pincode'])
                       : null,
@@ -717,6 +794,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           onClose={() => setSavedOrder(null)}
           onNew={() => {
             setSavedOrder(null);
+            setSelectedOld(null);
             void nextCounter().then((n) => {
               setForm(emptyForm(settings, n, fields));
               toast('success', 'Ready for the next order');

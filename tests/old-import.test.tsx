@@ -1,0 +1,387 @@
+// @vitest-environment happy-dom
+// ---------------------------------------------------------------------------
+// v1.0.6 tests — old customer/order import system:
+//   phone normalization, CSV/.xlsx parsing + validation, record conversion &
+//   dedupe rules, separate storage, lookup index, New Order flow (autofill +
+//   composed order number + previousOrderNumber), old-data separation.
+// ---------------------------------------------------------------------------
+import { describe, expect, it, beforeAll } from 'vitest';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { LS, storage } from '../src/services/storage';
+import { makeDefaultSettingsWithTemplate } from '../src/services/config';
+import { defaultSettings } from '../src/lib/constants';
+import { DemoDriver } from '../src/services/spreadsheet/demoDriver';
+import { normalizePhone, phoneSearchable } from '../src/lib/normalizePhone';
+import {
+  parseDelimitedText, scanHeaders, missingRequiredColumns, rowsToOldRecords, fileToRows, parseXlsxRows,
+} from '../src/lib/tableImport';
+import { xlsxBlob } from '../src/lib/xlsx';
+import { findOldByWhatsapp, getOldOrders, indexOldOrders, mergeOldOrders } from '../src/services/oldOrders';
+import { nextCounter, normalizeCounter } from '../src/services/orders';
+import type { OldOrderRecord, Order, Product } from '../src/types';
+
+const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+
+describe('phone normalization', () => {
+  it('ignores spaces, hyphens, brackets, dots, leading +', () => {
+    expect(normalizePhone('+91 83470 34843')).toBe('8347034843');
+    expect(normalizePhone('8347034843')).toBe('8347034843');
+    expect(normalizePhone('083470-34843')).toBe('8347034843');
+    expect(normalizePhone('(+91) 8347034843')).toBe('8347034843');
+    expect(normalizePhone('91 83470 34843')).toBe('8347034843');
+    expect(normalizePhone('91-83470-34843')).toBe('8347034843');
+  });
+  it('search only starts once 10 digits exist', () => {
+    expect(phoneSearchable('')).toBe(false);
+    expect(phoneSearchable('83470')).toBe(false);
+    expect(phoneSearchable('834703484')).toBe(false);
+    expect(phoneSearchable('8347034843')).toBe(true);
+    expect(phoneSearchable('+91 8347034843')).toBe(true);
+  });
+});
+
+describe('CSV parsing + validation', () => {
+  it('parses quotes, embedded commas/newlines and skips empty trailing rows', () => {
+    const csv = `Order Number,Name,Address,Whatsapp Number
+"4673-4312-3542","Patel, Poonam","A-601, Yogi Platina
+Sargasan","8347034843"
+3542,Patel Poonam,"A-204, Aarna",6358800465
+
+`;
+    const rows = parseDelimitedText(csv);
+    expect(rows).toHaveLength(3); // header + 2 (empty line dropped)
+    expect(rows[0]).toEqual(['Order Number', 'Name', 'Address', 'Whatsapp Number']);
+    expect(rows[1][0]).toBe('4673-4312-3542');
+    expect(rows[1][1]).toBe('Patel, Poonam');
+    expect(rows[1][2]).toBe('A-601, Yogi Platina\nSargasan');
+    expect(rows[1][3]).toBe('8347034843');
+  });
+
+  it('accepts header synonyms; reports missing required columns by canonical name', () => {
+    const ok = scanHeaders([['order no', 'Customer Name', 'Full Address', 'whatsapp']]);
+    expect(ok.index.orderNumber).toBe(0);
+    expect(ok.index.name).toBe(1);
+    expect(ok.index.address).toBe(2);
+    expect(ok.index.whatsapp).toBe(3);
+    expect(missingRequiredColumns(ok)).toEqual([]);
+
+    const bad = scanHeaders([['Order Number', 'Name', 'Address']]);
+    expect(missingRequiredColumns(bad)).toEqual(['Whatsapp Number']);
+
+    const bad2 = scanHeaders([['Name', 'Address', 'Whatsapp Number']]);
+    expect(missingRequiredColumns(bad2)).toEqual(['Order Number']);
+  });
+
+  it('skips empty rows and rows without order number/whatsapp; dedupes exact rows only', () => {
+    const rows = parseDelimitedText(`Order Number,Name,Address,Whatsapp Number
+4673-4312-3542,Patel Poonam,A-601,8347034843
+3542,Patel Poonam,A-204,8347034843
+7489,Trupti Joshi,A-204,6358800465
+4673-4312-3542,Patel Poonam,A-601,8347034843
+,,,
+9999,,X, 
+,Missing Order,,8347000000
+7777,No phone,,`);
+    const scan = scanHeaders(rows);
+    const { records, skipped } = rowsToOldRecords(rows, scan);
+    // skipped: dup row, empty row, no-order row, no-whatsapp rows (2)
+    expect(skipped).toBe(5);
+    expect(records).toHaveLength(3);
+    // same whatsapp + different order numbers all kept (never auto-merged)
+    expect(records.filter((r) => r.whatsapp === '8347034843')).toHaveLength(2);
+    expect(records.map((r) => r.orderNumber)).toEqual(['4673-4312-3542', '3542', '7489']);
+    // name stays canonical even when the Name column is empty
+    expect(records[0].name).toBe('Patel Poonam');
+    expect(records[0].sourceRow).toBe(2);
+  });
+
+  it('keeps extra columns for custom-field autofill', () => {
+    const rows = parseDelimitedText(`Order Number,Name,Address,Whatsapp Number,City,State,Pincode,Email
+1,A,B,9000000001,Ahmedabad,Gujarat,380001,a@b.c`);
+    const scan = scanHeaders(rows);
+    const { records } = rowsToOldRecords(rows, scan);
+    expect(records[0].extras).toEqual({ City: 'Ahmedabad', State: 'Gujarat', Pincode: '380001', Email: 'a@b.c' });
+  });
+});
+
+describe('.xlsx parsing (real workbook bytes)', () => {
+  it('round-trips a workbook written by the app reader/writer pair', async () => {
+    const grid = [
+      ['Order Number', 'Name', 'Address', 'Whatsapp Number', 'City'],
+      ['4673-4312-3542', 'Patel Poonam', 'A-601, Yogi Platina', '8347034843', 'Gandhinagar'],
+      ['3542', 'Trupti Joshi', 'A-204', 6358800465, 'Ahmedabad'], // numeric phone cell
+    ];
+    const blob = xlsxBlob(grid as (string | number)[][], { sheetName: 'Old' });
+    const buf = await blob.arrayBuffer();
+    const rows = await parseXlsxRows(buf);
+    expect(rows).toHaveLength(3); // header + 2 data rows
+    expect(rows[0][0]).toBe('Order Number');
+    expect(rows[1][0]).toBe('4673-4312-3542');
+    expect(rows[1][3]).toBe('8347034843');
+    expect(rows[2][1]).toBe('Trupti Joshi');
+    expect(rows[2][3]).toBe('6358800465'); // numeric cell read back as string
+    // full import round trip through the same pipeline
+    const scan = scanHeaders(rows);
+    expect(missingRequiredColumns(scan)).toEqual([]);
+    const { records } = rowsToOldRecords(rows, scan);
+    expect(records).toHaveLength(2);
+    expect(records[0].orderNumber).toBe('4673-4312-3542');
+  });
+
+  it('fileToRows routes real xlsx magic bytes to the xlsx parser', async () => {
+    const blob = xlsxBlob([['Order Number', 'Name', 'Address', 'Whatsapp Number'], ['1', 'X', 'Y', '9000000001']]);
+    const file = new File([blob], 'old.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const rows = await fileToRows(file);
+    expect(rows[0][0]).toBe('Order Number');
+    expect(rows[1][1]).toBe('X');
+  });
+});
+
+describe('separate storage + lookup index', () => {
+  beforeAll(async () => {
+    await storage.area.clear();
+    await storage.remove([LS.oldOrders, LS.orders, LS.nextOrderNumber, LS.settings, LS.fields, LS.products]);
+  });
+
+  const mk = (n: string, wa: string, name = 'P'): OldOrderRecord => ({
+    id: `r-${n}`, orderNumber: n, name, address: 'addr', whatsapp: wa, sourceRow: 1, importedAt: 1,
+  });
+
+  it('merge keeps distinct old order numbers for one whatsapp; re-imports do not duplicate', async () => {
+    const r1 = await mergeOldOrders([mk('4673-4312-3542', '8347034843', 'Patel Poonam'), mk('3542', '8347034843', 'Patel Poonam')]);
+    expect(r1.added).toBe(2);
+    const again = await mergeOldOrders([mk('4673-4312-3542', '8347034843', 'Patel Poonam')]);
+    expect(again.added).toBe(0);
+    expect(again.total).toBe(2);
+    expect(await getOldOrders()).toHaveLength(2);
+  });
+
+  it('index + find: +91 formatted input finds the records, short numbers do not', async () => {
+    const recs = await getOldOrders();
+    const index = indexOldOrders(recs);
+    expect(findOldByWhatsapp(index, '+91 83470 34843').map((r) => r.orderNumber)).toEqual(['4673-4312-3542', '3542']);
+    expect(findOldByWhatsapp(index, '8347034843').length).toBe(2);
+    expect(findOldByWhatsapp(index, '83470')).toEqual([]);
+    expect(findOldByWhatsapp(index, '9999999999')).toEqual([]);
+    // formatting differences never create duplicates
+    expect(findOldByWhatsapp(index, '083470-34843').length).toBe(2);
+  });
+});
+
+describe('auto number + old order suffix', () => {
+  it('composed numbers advance the counter; never reused; main sequence continues', async () => {
+    const s = defaultSettings(); // ORD- prefix, start 1001
+    await storage.setMany({ [LS.settings]: s, [LS.orders]: [], [LS.nextOrderNumber]: 1001 });
+    const ord = (n: string): Order => ({
+      id: `x-${n}`, orderNumber: n,
+      customer: { name: 'R', whatsapp: '8347034843', mobile: '', address: '', city: '', state: '', pincode: '' },
+      products: {}, paymentStatus: 'Paid', paymentMethod: 'UPI', transactionId: '', paymentAmount: '',
+      orderStatus: 'New', notes: '', totalAmount: 0, printed: 'Not Printed', printedAt: null,
+      createdAt: 1, updatedAt: 1, customFields: {}, previousOrderNumber: '4673-4312-3542',
+    });
+    const one = ord('ORD-1001-4673-4312-3542');
+    await storage.setMany({ [LS.orders]: [one], [LS.nextOrderNumber]: 1001 });
+    // next base stays 1002 (composed order counted via its leading run)
+    expect(await nextCounter()).toBe(1002);
+    expect(normalizeCounter([one], s)).toBe(1002);
+    const plain = ord('ORD-1002');
+    await storage.setMany({ [LS.orders]: [one, plain], [LS.nextOrderNumber]: 1002 });
+    expect(await nextCounter()).toBe(1003);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI: Settings → Old Data import + New Order lookup/autofill flow
+// ---------------------------------------------------------------------------
+function mkOrder(id: string, number: string, ts: number): Order {
+  return {
+    id, orderNumber: number,
+    customer: { name: 'Old Customer', whatsapp: '', mobile: '', address: '', city: '', state: '', pincode: '' },
+    products: {}, paymentStatus: 'Paid', paymentMethod: 'UPI', transactionId: '', paymentAmount: '',
+    orderStatus: 'New', notes: '', totalAmount: 0, printed: 'Not Printed', printedAt: null, createdAt: ts, updatedAt: ts, customFields: {},
+  };
+}
+
+async function mountApp() {
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const root = createRoot(el);
+  const { App } = await import('../src/app/App');
+  await act(async () => { root.render(<App />); });
+  await act(async () => { await tick(400); });
+  const { navigate } = await import('../src/app/router');
+  return { el, root, navigate };
+}
+
+describe('New Order page: previous-orders lookup → autofill → composed number', () => {
+  beforeAll(async () => {
+    DemoDriver.resetDemoGrid();
+    await storage.area.clear();
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone, LS.pendingOps]);
+  });
+
+  it('types whatsapp, sees ALL previous orders, picks one, saves with old order attached', { timeout: 40000 }, async () => {
+    const { settings, fields } = makeDefaultSettingsWithTemplate();
+    settings.demoMode = true;
+    settings.spreadsheet = { provider: 'demo', connected: false, connection: null };
+    const products: Product[] = [
+      { id: 'p1', name: 'Night Cream', sku: '', price: 499, active: true, createdAt: 1 },
+      { id: 'p2', name: 'Face Serum', sku: '', price: 699, active: true, createdAt: 1 },
+    ];
+    const recs: OldOrderRecord[] = [
+      { id: 'a1', orderNumber: '4673-4312-3542', name: 'Patel Poonam', address: 'A-601, Yogi Platina, Sargasan, Gandhinagar - 382421', whatsapp: '8347034843', extras: { City: 'Gandhinagar', State: 'Gujarat' }, sourceRow: 2, importedAt: 1 },
+      { id: 'a2', orderNumber: '3542', name: 'Patel Poonam', address: 'A-204, Aarna Residency', whatsapp: '8347034843', sourceRow: 3, importedAt: 1 },
+      { id: 'a3', orderNumber: '7489', name: 'Trupti Joshi', address: 'A-204, Aarna Residency', whatsapp: '6358800465', sourceRow: 4, importedAt: 1 },
+    ];
+    const existing = mkOrder('ord-1001', 'ORD-1001', Date.now() - 86400_000);
+    await storage.setMany({
+      [LS.settings]: settings, [LS.fields]: fields, [LS.products]: products,
+      [LS.orders]: [existing], [LS.oldOrders]: recs, [LS.nextOrderNumber]: 1002, [LS.setupDone]: true,
+    });
+
+    const { el, root, navigate } = await mountApp();
+    try {
+      await act(async () => { navigate('new'); });
+      await act(async () => { await tick(400); });
+      const text = () => el.textContent ?? '';
+
+      const setInput = async (placeholder: string, value: string) => {
+        const candidates = [...Array.from(el.querySelectorAll('input')), ...Array.from(el.querySelectorAll('textarea'))] as Array<HTMLInputElement | HTMLTextAreaElement>;
+        const input = candidates.find((i) => i.getAttribute('placeholder') === placeholder);
+        expect(input, `input ${placeholder}`).toBeTruthy();
+        await act(async () => {
+          const proto = Object.getPrototypeOf(input!);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          setter?.call(input, value);
+          input!.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await act(async () => { await tick(600); }); // debounce 350ms
+      };
+
+      // type the whatsapp number → both old orders for the SAME number shown
+      await setInput('9876543210', '8347034843');
+      expect(text()).toContain('Previous Orders Found');
+      expect(text()).toContain('4673-4312-3542');
+      expect(text()).toContain('3542');
+      expect(text()).toContain('Patel Poonam');
+      // Trupti (different number) must not appear
+      expect(text()).not.toContain('Trupti Joshi');
+
+      // unknown number → friendly "no previous order" note, no error
+      await setInput('9876543210', '9000000000');
+      expect(text()).toContain('No previous order found.');
+
+      // back to the known number, pick the first old order
+      await setInput('9876543210', '8347034843');
+      const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      expect(useButtons.length).toBe(2);
+      await act(async () => { useButtons[0].click(); });
+      await act(async () => { await tick(200); });
+
+      // autofilled customer info + previous-order chip
+      const nameInput = Array.from(el.querySelectorAll('input')).find((i) => i.getAttribute('placeholder') === 'Customer name') as HTMLInputElement | null;
+      expect(nameInput?.value).toBe('Patel Poonam');
+      const addrInput = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
+      expect(addrInput?.value).toContain('A-601, Yogi Platina');
+      expect(text()).toContain('Previous Order:');
+      expect(text()).toContain('4673-4312-3542');
+      // City/State autofilled from extra columns when the fields exist
+      const cityInput = Array.from(el.querySelectorAll('input')).find((i) => i.getAttribute('placeholder') === 'City') as HTMLInputElement | null;
+      expect(cityInput?.value ?? '').toBe('Gandhinagar');
+
+      // auto order number = counter 1002? (existing ORD-1001 → counter 1002) + old suffix
+      const numInput = el.querySelector('#order-number') as HTMLInputElement | null;
+      expect(numInput?.value).toBe('ORD-1002-4673-4312-3542');
+
+      // add a product & save
+      await act(async () => {
+        const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
+        expect(pill).toBeTruthy();
+        pill!.click();
+      });
+      await act(async () => { await tick(150); });
+      await act(async () => {
+        const save = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Save Order'));
+        expect(save).toBeTruthy();
+        save!.click();
+      });
+      await act(async () => { await tick(1400); });
+
+      const stored = await storage.loadAll();
+      const newest = [...stored.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+      expect(newest.orderNumber).toBe('ORD-1002-4673-4312-3542');
+      expect(newest.previousOrderNumber).toBe('4673-4312-3542');
+      expect(newest.customer.name).toBe('Patel Poonam');
+      expect(newest.customer.whatsapp).toBe('8347034843');
+      expect(newest.customer.address).toContain('Yogi Platina');
+      expect(newest.customer.state).toBe('Gujarat');
+      // main counter continues normally
+      expect(stored.nextOrderNumber).toBe(1003);
+      // old data untouched & separate (still 3 records, still not in orders)
+      expect((await storage.getState<OldOrderRecord[]>(LS.oldOrders))?.length).toBe(3);
+      expect(stored.orders.length).toBe(2); // only the new one added
+
+      // new order shows in dashboard/orders, old records never do
+      await act(async () => { navigate('orders'); });
+      await act(async () => { await tick(300); });
+      const ordersText = el.textContent ?? '';
+      expect(ordersText).toContain('ORD-1002-4673-4312-3542');
+      expect(ordersText).not.toContain('7489'); // old records never listed as orders
+    } finally {
+      root.unmount();
+      el.remove();
+    }
+  });
+});
+
+describe('Settings → Old Data import UI', () => {
+  it('uploads a CSV file and stores the records', { timeout: 40000 }, async () => {
+    await storage.area.clear();
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone]);
+    const { settings, fields } = makeDefaultSettingsWithTemplate();
+    await storage.setMany({ [LS.settings]: settings, [LS.fields]: fields, [LS.orders]: [], [LS.setupDone]: true });
+
+    const { el, root, navigate } = await mountApp();
+    try {
+      await act(async () => { navigate('settings'); });
+      await act(async () => { await tick(300); });
+      const clickTab = async (label: string) => {
+        let btn: Element | null = null;
+        for (let attempt = 0; attempt < 8 && !btn; attempt += 1) {
+          btn = Array.from(el.querySelectorAll('button.tab, .tabs button')).find((b) => (b.textContent ?? '').trim() === label) ?? null;
+          if (!btn) await act(async () => { await tick(250); });
+        }
+        expect(btn, `tab ${label}`).toBeTruthy();
+        await act(async () => { (btn as HTMLElement).click(); });
+        await act(async () => { await tick(250); });
+      };
+      await clickTab('Old Data');
+      expect((el.textContent ?? '')).toContain('Import Excel / CSV');
+      expect((el.textContent ?? '')).toContain('Order Number · Name · Address · Whatsapp Number');
+
+      const csv = new File(
+        ['Order Number,Name,Address,Whatsapp Number\n9001,Rahul Shah,12 MG Road Ahmedabad,9876512345\n9002,Rahul Shah,12 MG Road Ahmedabad,9876512345\n9003,Meera Nair,Bandra,9988776655\n'],
+        'old.csv', { type: 'text/csv' },
+      );
+      const input = el.querySelector('input[type="file"]') as HTMLInputElement | null;
+      expect(input).toBeTruthy();
+      await act(async () => {
+        Object.defineProperty(input!, 'files', { configurable: true, value: [csv] });
+        input!.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await act(async () => { await tick(900); });
+
+      const stored = await storage.loadAll();
+      expect(stored.oldOrders).toHaveLength(3);
+      expect(stored.oldOrders[0].orderNumber).toBe('9001');
+      expect(stored.oldOrders[0].name).toBe('Rahul Shah');
+      expect((el.textContent ?? '')).toContain('3 old orders stored');
+      // new orders untouched
+      expect(stored.orders).toHaveLength(0);
+    } finally {
+      root.unmount();
+      el.remove();
+    }
+  });
+});
