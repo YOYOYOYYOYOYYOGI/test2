@@ -20,6 +20,8 @@ export interface OrderInput {
   orderStatus: Order['orderStatus'];
   notes: string;
   customFields?: Record<string, string | number | boolean>;
+  /** delivery charge to add to the product total (already evaluated) */
+  deliveryCharge?: number;
 }
 
 export interface OrderCtx {
@@ -52,10 +54,23 @@ export async function deleteOrderLocal(id: string): Promise<void> {
   await persistOrders(all.filter((o) => o.id !== id));
 }
 
-/** The next counter value for automatic order numbers. */
+/**
+ * The next counter value for automatic order numbers.
+ *
+ * Always the HIGHER of the persisted counter and the number implied by the
+ * existing orders, so the generator can never hand out a number that already
+ * exists (orders imported from the spreadsheet, demo seeds, manual numbers
+ * or deleted orders never cause reuse — the counter only ever moves forward).
+ */
 export async function nextCounter(): Promise<number> {
-  const cur = (await storage.getState<number>(LS.nextOrderNumber)) ?? defaultSettings().order.startNumber;
-  return cur;
+  const [orders, settings, stored] = await Promise.all([
+    getAllOrders(),
+    storage.getState<Settings>(LS.settings),
+    storage.getState<number>(LS.nextOrderNumber),
+  ]);
+  const s = settings ?? defaultSettings();
+  const base = typeof stored === 'number' && stored > 0 ? stored : s.order.startNumber;
+  return Math.max(base, normalizeCounter(orders, s));
 }
 
 export async function setCounter(n: number): Promise<void> {
@@ -108,7 +123,8 @@ function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; n
     paymentAmount: (input.paymentAmount ?? '').trim(),
     orderStatus: input.orderStatus,
     notes: (input.notes ?? '').trim(),
-    totalAmount: Math.round(computeTotal(products) * 100) / 100,
+    deliveryCharge: Math.round((Number(input.deliveryCharge) || 0) * 100) / 100,
+    totalAmount: Math.round((computeTotal(products) + (Number(input.deliveryCharge) || 0)) * 100) / 100,
     printed: 'Not Printed',
     printedAt: null,
     createdAt: now,
@@ -151,11 +167,11 @@ export async function createOrder(
   orders.push(order);
   await persistOrders(orders);
 
-  // advance the counter past every order we know about
-  if (!ctx.settings.order.manualNumbering) {
-    const cnt = normalizeCounter(orders, ctx.settings);
-    await setCounter(cnt);
-  }
+  // advance the counter past every order we know about (auto + manual):
+  // the next generated number must always be larger than any existing one
+  const cnt = normalizeCounter(orders, ctx.settings);
+  const stored = (await storage.getState<number>(LS.nextOrderNumber)) ?? 0;
+  await setCounter(Math.max(cnt, stored));
 
   if (opts.skipSheet) {
     return { ok: true, order, synced: false };

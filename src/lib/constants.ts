@@ -165,6 +165,8 @@ export function defaultSettings(): Settings {
     labelFields: [],
     mappings: {},
     includedFields: [],
+    delivery: { defaultCharge: 0, rules: [] },
+    matching: { rules: [] },
     printUpdatesStatus: true,
     demoMode: false,
     clipboardParsing: true,
@@ -182,9 +184,9 @@ export const DEFAULT_DEMO_PRODUCTS: Product[] = [
 /** Columns the demo / sample spreadsheet starts with */
 export const DEMO_COLUMNS = [
   'Order Number', 'Customer Name', 'WhatsApp Number', 'Mobile Number', 'Address', 'City', 'State',
-  'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Payment Amount', 'Order Status', 'Total',
+  'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Payment Amount', 'Order Status',
   'Night Cream Qty', 'Day Cream Qty', 'Face Serum Qty', 'Sunscreen Qty', 'Face Wash Qty',
-  'Label Status', 'Printed At', 'Created At', 'Updated At',
+  'Delivery Charge', 'Total', 'Label Status', 'Printed At', 'Created At', 'Updated At',
 ];
 
 export function demoOrders(): Order[] {

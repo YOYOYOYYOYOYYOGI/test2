@@ -155,9 +155,30 @@ export function duplicateMessage(orderNumber: string): string {
   return `Order ${orderNumber} already exists.`;
 }
 
-/** Total for an order */
+/** Total for an order's products (excludes delivery) */
 export function computeTotal(products: Record<string, { quantity: number; price: number }>): number {
   return Object.values(products).reduce((sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
+}
+
+export function roundMoney(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Product subtotal of an order (without any delivery charge). */
+export function orderSubtotal(o: { products: Record<string, { quantity: number; price: number }> }): number {
+  return roundMoney(computeTotal(o.products));
+}
+
+/** Grand total of an order: stored totalAmount, or subtotal when unset
+ *  (orders created before delivery charges were introduced). */
+export function orderTotal(o: { products: Record<string, { quantity: number; price: number }>; totalAmount: number }): number {
+  if (typeof o.totalAmount === 'number' && Number.isFinite(o.totalAmount) && o.totalAmount > 0) return roundMoney(o.totalAmount);
+  return orderSubtotal(o);
+}
+
+/** Delivery charge of an order (0 for orders saved before delivery charges). */
+export function orderDelivery(o: { deliveryCharge?: number }): number {
+  return roundMoney(o.deliveryCharge ?? 0);
 }
 
 export function countUnits(products: Record<string, { quantity: number }>): number {

@@ -104,6 +104,45 @@ export type OrderStatusValue =
   | 'Returned';
 export type PrintedStatusValue = 'Not Printed' | 'Printed';
 
+export type CompareOp = 'equals' | 'notEquals' | 'greaterThan' | 'lessThan' | 'contains';
+
+/** One condition inside a delivery-charge rule (ANDed with the others). */
+export interface DeliveryCondition {
+  id: string;
+  /** Field id from the field config, or '__amount' for the order subtotal */
+  field: string;
+  op: CompareOp;
+  value: string;
+}
+
+/** A delivery-charge rule. Array order = priority (first match wins). */
+export interface DeliveryRule {
+  id: string;
+  conditions: DeliveryCondition[];
+  charge: number;
+}
+
+export interface DeliveryConfig {
+  /** Used when no rule matches */
+  defaultCharge: number;
+  rules: DeliveryRule[];
+}
+
+export type MatchMode = 'exact' | 'insensitive' | 'contains';
+
+/** Duplicate/matching rule: warn when a new order's value for `fieldId`
+ *  matches an existing order's value for the same field. */
+export interface MatchingRule {
+  id: string;
+  fieldId: string;
+  mode: MatchMode;
+  enabled: boolean;
+}
+
+export interface MatchingConfig {
+  rules: MatchingRule[];
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -117,6 +156,8 @@ export interface Order {
   orderStatus: OrderStatusValue;
   notes: string;
   totalAmount: number;
+  /** delivery charge included in totalAmount (0 when not configured) */
+  deliveryCharge?: number;
   printed: PrintedStatusValue;
   printedAt: number | null;
   createdAt: number;
@@ -255,6 +296,10 @@ export interface Settings {
   mappings: Record<string, string>;
   /** ids of bound fields that are written to the spreadsheet */
   includedFields: string[];
+  /** delivery-charge rules (first matching rule wins, else defaultCharge) */
+  delivery: DeliveryConfig;
+  /** duplicate/matching rules checked before an order is saved */
+  matching: MatchingConfig;
   /** when 0/false: no auto print-status update */
   printUpdatesStatus: boolean;
   demoMode: boolean;

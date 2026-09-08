@@ -13,8 +13,9 @@ import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 import { LabelSheetComponent, labelSizePx } from '../../components/label/LabelSheet';
 import { buildLabelModel } from '../../components/label/labelModel';
 import { LABEL_FONT_FAMILIES, LABEL_FONT_KEYS, LABEL_FONT_LABELS, labelFontFamily, labelGlobalFontSize } from '../../components/label/labelStyle';
+import { DeliveryRulesTab, MatchingRulesTab } from './settingsRules';
 
-type Tab = 'business' | 'spreadsheet' | 'order' | 'label' | 'backup';
+type Tab = 'business' | 'spreadsheet' | 'order' | 'label' | 'delivery' | 'matching' | 'backup';
 
 export function SettingsPage({ go }: { go: (r: string) => void }) {
   const [tab, setTab] = useState<Tab>('business');
@@ -23,6 +24,8 @@ export function SettingsPage({ go }: { go: (r: string) => void }) {
     { id: 'spreadsheet', label: 'Spreadsheet' },
     { id: 'order', label: 'Order Numbers' },
     { id: 'label', label: 'Label Design' },
+    { id: 'delivery', label: 'Delivery' },
+    { id: 'matching', label: 'Duplicates' },
     { id: 'backup', label: 'Backup & Data' },
   ];
   return (
@@ -40,6 +43,8 @@ export function SettingsPage({ go }: { go: (r: string) => void }) {
       {tab === 'spreadsheet' && <SpreadsheetTab go={go} />}
       {tab === 'order' && <OrderTab />}
       {tab === 'label' && <LabelTab />}
+      {tab === 'delivery' && <DeliveryRulesTab />}
+      {tab === 'matching' && <MatchingRulesTab />}
       {tab === 'backup' && <BackupTab go={go} />}
     </div>
   );

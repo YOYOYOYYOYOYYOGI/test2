@@ -10,6 +10,8 @@ import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons'
 import { validatePincode, validatePhone, validateEmail } from '../../lib/format';
 import { COMPUTED_FIELD_KEYS } from '../../services/config';
 import { makeOrderNumber, nextCounter } from '../../services/orders';
+import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
+import { scanMatches, type MatchHit } from '../../lib/matching';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 
@@ -46,6 +48,28 @@ function emptyForm(settings: Settings, counter: number, fields: OrderField[]): F
     notes: '',
     custom,
   };
+}
+
+/** Raw value currently typed on the form for a configured field id
+ *  (same source mapping that later reads the stored order). */
+function formFieldValue(form: FormState, f: OrderField): string | number | boolean {
+  switch (String(f.key)) {
+    case 'orderNumber': return form.orderNumber.trim();
+    case 'customerName': return form.customer.name;
+    case 'customerWhatsapp': return form.customer.whatsapp;
+    case 'customerMobile': return form.customer.mobile;
+    case 'customerAddress': return form.customer.address;
+    case 'customerCity': return form.customer.city;
+    case 'customerState': return form.customer.state;
+    case 'customerPincode': return form.customer.pincode;
+    case 'paymentStatus': return form.paymentStatus;
+    case 'paymentMethod': return form.paymentMethod;
+    case 'transactionId': return form.transactionId;
+    case 'paymentAmount': return form.paymentAmount;
+    case 'orderStatus': return form.orderStatus;
+    case 'notes': return form.notes;
+    default: return form.custom[f.id] ?? '';
+  }
 }
 
 function orderToForm(o: Order, settings: Settings): FormState {
@@ -85,6 +109,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [duplicate, setDuplicate] = useState<Order | null>(null);
+  const [matchHits, setMatchHits] = useState<MatchHit[] | null>(null);
   const [savedOrder, setSavedOrder] = useState<Order | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
@@ -128,9 +153,15 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
 
   const total = useMemo(() => {
     const fromProducts = form.selected.reduce((s, row) => s + (Number(row.qty) || 0) * (Number(row.price) || 0), 0);
+    const productTotal = Math.round(fromProducts * 100) / 100;
     const entered = parseFloat(String(form.paymentAmount).replace(/[₹,\s]/g, ''));
-    return { productTotal: fromProducts, entered: Number.isFinite(entered) ? entered : 0 };
-  }, [form.selected, form.paymentAmount]);
+    // delivery charge = first matching delivery rule, else the default
+    const sorted = [...fields].sort((a, b) => a.order - b.order);
+    const byFieldId: Record<string, string | number | boolean> = {};
+    for (const f of sorted) byFieldId[f.id] = formFieldValue(form, f);
+    const delivery = deliveryChargeFor({ subtotal: productTotal, byFieldId }, settings.delivery);
+    return { productTotal, entered: Number.isFinite(entered) ? entered : 0, delivery, grandTotal: productTotal + delivery };
+  }, [form.selected, form.paymentAmount, form, fields, settings.delivery]);
 
   const addProduct = (p: Product) => {
     if (form.selected.some((r) => r.productId === p.id)) return;
@@ -173,11 +204,30 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     return Object.keys(errs).length === 0;
   };
 
+  // ---------- duplicate/matching scan ----------
+  const scanForMatches = (): MatchHit[] => {
+    const rules = settings.matching?.rules ?? [];
+    if (rules.length === 0) return [];
+    const values: Record<string, unknown> = {};
+    for (const f of sortedFields) {
+      const raw = formFieldValue(form, f);
+      if (raw !== undefined && String(raw) !== '') values[f.id] = raw;
+    }
+    return scanMatches({ fields: sortedFields, rules, orders, values, excludeOrderId: editing?.id });
+  };
+
   // ---------- submit ----------
-  const submit = async (force = false) => {
+  const submit = async (force = false, bypassMatch = false) => {
     if (!validate()) {
       toast('error', 'Please fix the highlighted fields', { message: 'Check the red messages next to each field.' });
       return;
+    }
+    if (!bypassMatch && !force) {
+      const hits = scanForMatches();
+      if (hits.length > 0) {
+        setMatchHits(hits);
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -205,6 +255,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         orderStatus: form.orderStatus as Order['orderStatus'],
         notes: form.notes,
         customFields: customValues,
+        deliveryCharge: total.delivery,
       };
       const svc = await import('../../services/orders');
       if (editing) {
@@ -515,8 +566,11 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
               {byKey.get('orderStatus') && widget(byKey.get('orderStatus')!, '', form.orderStatus, (v) => set({ orderStatus: String(v) }))}
             </div>
             <p className="hint" style={{ marginTop: 8 }}>
-              {byKey.get('paymentAmount') ? 'Payment Amount: leave blank to use the product total.' : `Order total ${formatMoney(total.productTotal)} is always written to the Total column.`}
-              {!byKey.get('paymentAmount') && total.entered > 0 ? '' : ''}
+              {hasDeliverySettings(settings.delivery)
+                ? 'The delivery charge (from Settings → Delivery rules) is added automatically. Subtotal + Delivery = Grand Total is written to the spreadsheet.'
+                : byKey.get('paymentAmount')
+                  ? 'Payment Amount: leave blank to use the product total.'
+                  : `Order total ${formatMoney(total.productTotal)} is always written to the Total column.`}
             </p>
           </div>
         </div>
@@ -594,8 +648,16 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
 
       {/* --- Submit bar --- */}
       <div className="row" style={{ gap: 10, margin: '18px 0 8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div>
-          <span className="hint">Total: <b style={{ color: 'var(--text)', fontSize: 15 }}>{formatMoney(total.productTotal)}</b></span>
+        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+          {hasDeliverySettings(settings.delivery) ? (
+            <>
+              <span className="hint">Subtotal: <b style={{ color: 'var(--text)', fontSize: 15 }}>{formatMoney(total.productTotal)}</b></span>
+              <span className="hint">Delivery: <b style={{ color: 'var(--text)', fontSize: 15 }}>{formatMoney(total.delivery)}</b></span>
+              <span className="hint" style={{ fontWeight: 700 }}>Grand Total: <b style={{ color: 'var(--primary)', fontSize: 16 }}>{formatMoney(total.grandTotal)}</b></span>
+            </>
+          ) : (
+            <span className="hint">Total: <b style={{ color: 'var(--text)', fontSize: 15 }}>{formatMoney(total.productTotal)}</b></span>
+          )}
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Button variant="outline" onClick={() => go('orders')}>Cancel</Button>
@@ -605,14 +667,14 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         </div>
       </div>
 
-      {/* Duplicate dialog */}
+      {/* Duplicate dialog (order number) */}
       <Modal open={Boolean(duplicate)} onClose={() => setDuplicate(null)} title={`Order ${duplicate?.orderNumber ?? ''} already exists`}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDuplicate(null)}>Go Back</Button>
             {duplicate && <>
-              <Button variant="outline" onClick={() => { const id = duplicate.id; setDuplicate(null); go(`edit/${id}`); }}>Edit Existing Order</Button>
-              <Button variant="primary" onClick={() => { setDuplicate(null); void submit(true); }}>Create Anyway</Button>
+              <Button variant="outline" onClick={() => { const id = duplicate.id; setDuplicate(null); go(`edit/${id}`); }}>View Existing Order</Button>
+              <Button variant="primary" onClick={() => { setDuplicate(null); void submit(true); }}>Continue Anyway</Button>
             </>}
           </>
         }>
@@ -621,6 +683,32 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           <p className="muted">Saving again would create a duplicate spreadsheet row. Choose what you want to do.</p>
         </div>
       </Modal>
+
+      {/* Matching/duplicate rule dialog */}
+      {matchHits && (
+        <Modal open onClose={() => setMatchHits(null)}
+          title={matchHits.length === 1 ? `Matching ${matchHits[0].fieldName} Found` : 'Duplicate Matches Found'}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setMatchHits(null)}>Go Back</Button>
+              {matchHits[0]?.orders[0] && (
+                <Button variant="outline" onClick={() => { const id = matchHits[0].orders[0].id; setMatchHits(null); go(`edit/${id}`); }}>View Existing Order</Button>
+              )}
+              <Button variant="primary" onClick={() => { setMatchHits(null); void submit(true, true); }}>Continue Anyway</Button>
+            </>
+          }>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            {matchHits.map((h) => (
+              <p key={h.rule.id} style={{ marginBottom: 8 }}>
+                <b>{h.fieldName}</b> “{h.value}” already exists in order{' '}
+                <b className="mono">{h.orders.slice(0, 3).map((o) => o.orderNumber).join(', ')}</b>
+                {h.orders.length > 3 ? ` and ${h.orders.length - 3} more` : ''}.
+              </p>
+            ))}
+            <p className="muted">This looks like a duplicate. Choose what you want to do — duplicates are never saved silently.</p>
+          </div>
+        </Modal>
+      )}
 
       {/* Label preview after save */}
       {savedOrder && !editId && (

@@ -6,7 +6,7 @@
 // Product quantity columns use one fixed column per product: "Night Cream Qty"
 // ---------------------------------------------------------------------------
 import type { Order, OrderField, Product, Settings } from '../../types';
-import { computeTotal, productsSummary } from '../../lib/format';
+import { orderTotal, productsSummary } from '../../lib/format';
 
 /** Resolve the final spreadsheet column name for a bound field (respects custom mappings). */
 export function resolveFieldColumn(field: OrderField, settings: Settings): string {
@@ -35,9 +35,9 @@ export function desiredColumns(
     .filter((p) => includedProductIds.has(p.id))
     .map((p) => productColumnName(p));
 
-  const extras: string[] = [];
+  const extras: string[] = ['Delivery Charge'];
   if (fields.some((f) => f.key === 'totalAmount' || f.name === 'Total')) {
-    // Total handled as a regular field column below if bound; fall through.
+    // Total is provided by that bound field's own column — don't duplicate.
   } else {
     extras.push('Total');
   }
@@ -47,7 +47,7 @@ export function desiredColumns(
 
 /** Extra fixed system columns always created. */
 export function systemColumns(): string[] {
-  return ['Total', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
+  return ['Delivery Charge', 'Total', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
 }
 
 interface Ctx {
@@ -84,7 +84,7 @@ export function boundFieldValue(order: Order, field: OrderField): string | numbe
     case 'orderStatus': return order.orderStatus;
     case 'productsSummary': return productsSummary(order.products);
     case 'quantity': return Object.values(order.products).reduce((s, p) => s + p.quantity, 0);
-    case 'totalAmount': return Math.round(computeTotal(order.products) * 100) / 100;
+    case 'totalAmount': return orderTotal(order);
     case 'createdAt': return formatDateTime(order.createdAt);
     case 'updatedAt': return formatDateTime(order.updatedAt);
     case 'notes': return order.notes || '';
@@ -150,7 +150,8 @@ export function buildRowForHeaders(
   }
 
   // System columns
-  setMoneyByName('Total', computeTotal(order.products));
+  setMoneyByName('Delivery Charge', order.deliveryCharge ?? 0);
+  setMoneyByName('Total', orderTotal(order));
   setByName('Label Status', order.printed);
   setByName('Printed At', order.printedAt ? formatDateTime(order.printedAt) : '');
   setByName('Created At', formatDateTime(order.createdAt));

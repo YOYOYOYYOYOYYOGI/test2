@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 import type { Order, OrderField, Product, Settings } from '../types';
 import { xlsxBlob } from '../lib/xlsx';
+import { orderDelivery, orderTotal } from '../lib/format';
 import { boundFieldValue, productColumnName, resolveFieldColumn } from './spreadsheet/values';
 
 export type ExcelValue = string | number | boolean | null;
@@ -112,6 +113,9 @@ export function excelColumns(ctx: ExportCtx): ColumnDef[] {
       return line ? round2(line.quantity) : 0; // zero-fill, same as the sheet
     });
   }
+  // Money columns mirror the spreadsheet's system columns.
+  push('Delivery Charge', (o) => orderDelivery(o));
+  push('Total', (o) => orderTotal(o));
   return cols;
 }
 
@@ -155,8 +159,12 @@ export function ordersCreatedToday(orders: Order[], now: number = Date.now()): O
   });
 }
 
-export function excelFilename(kind: 'today' | 'all', now: Date = new Date()): string {
-  return kind === 'today' ? `orders-${localDateStamp(now)}.xlsx` : 'all-orders.xlsx';
+export type ExcelExportKind = 'today' | 'all' | 'filtered';
+
+export function excelFilename(kind: ExcelExportKind, now: Date = new Date()): string {
+  if (kind === 'today') return `orders-${localDateStamp(now)}.xlsx`;
+  if (kind === 'filtered') return `orders-filtered-${localDateStamp(now)}.xlsx`;
+  return 'all-orders.xlsx';
 }
 
 // ---------------------------------------------------------------------------
@@ -178,13 +186,20 @@ export function downloadBlob(filename: string, blob: Blob): void {
  * Build the workbook for a download. Returns the blob + filename + how many
  * order rows it contains (0 = none on that day / none stored).
  */
+/**
+ * Build the workbook for a download.
+ *  - 'today'    → orders created on the local day of `now`
+ *  - 'filtered' → the caller's already-filtered list (exact same records the
+ *                 page is currently showing — never re-filters, never widens)
+ *  - 'all'      → every stored order
+ */
 export function prepareOrdersExport(
-  kind: 'today' | 'all',
+  kind: ExcelExportKind,
   orders: Order[],
   ctx: ExportCtx,
   now: Date = new Date(),
 ): { filename: string; blob: Blob; count: number } {
-  const source = kind === 'today' ? ordersCreatedToday(orders, now.getTime()) : orders;
+  const source = kind === 'today' ? ordersCreatedToday(orders, now.getTime()) : kind === 'filtered' ? orders.slice() : orders;
   const grid = excelGrid(source, ctx);
   return {
     filename: excelFilename(kind, now),

@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 import type { Order, OrderField, Settings } from '../../types';
 import { formatMoney } from '../../lib/constants';
+import { orderDelivery, orderSubtotal, orderTotal } from '../../lib/format';
 import { boundFieldValue } from '../../services/spreadsheet/values';
 import { labelFieldIds } from '../../services/config';
 
@@ -30,7 +31,7 @@ export interface LabelModel {
   /** folded address block lines */
   address: string[];
   products: LabelProductLine[];
-  payment: { status: string; method: string; amount: string; transactionId: string };
+  payment: { status: string; method: string; amount: string; transactionId: string; subtotal?: string; delivery?: string };
   notes?: string;
   qrText: string;
   settings: Settings;
@@ -89,7 +90,8 @@ export function buildLabelModel(order: Order, settings: Settings, fields: OrderF
   }
   void hasField;
 
-  const amountNum = order.totalAmount;
+  const amountNum = orderTotal(order);
+  const deliveryNum = orderDelivery(order);
   const products: LabelProductLine[] = Object.values(order.products).map((p) => ({
     name: p.labelName || p.productName,
     quantity: p.quantity,
@@ -112,6 +114,8 @@ export function buildLabelModel(order: Order, settings: Settings, fields: OrderF
       method: order.paymentMethod,
       amount: amountNum > 0 ? formatMoney(amountNum) : '',
       transactionId: order.transactionId,
+      subtotal: deliveryNum > 0 ? formatMoney(orderSubtotal(order)) : undefined,
+      delivery: deliveryNum > 0 ? formatMoney(deliveryNum) : undefined,
     },
     notes,
     qrText: qrContentFor(order),

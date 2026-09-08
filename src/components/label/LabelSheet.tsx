@@ -206,7 +206,15 @@ export function LabelSheetComponent({ model, settings }: { model: LabelModel; se
         </div>
       )}
       {model.payment.amount && (
-        <div style={{ marginTop: 3, textAlign: 'right', fontWeight: 800, fontSize: px('amount') }}>Total: {model.payment.amount}</div>
+        model.payment.delivery ? (
+          <div style={{ marginTop: 3, textAlign: 'right', fontSize: px('payment'), lineHeight: 1.35 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}><span style={{ color: '#333' }}>Subtotal</span><span style={{ fontWeight: 600 }}>{model.payment.subtotal}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}><span style={{ color: '#333' }}>Delivery</span><span style={{ fontWeight: 600 }}>{model.payment.delivery}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, fontWeight: 800, fontSize: px('amount') }}><span>Total</span><span>{model.payment.amount}</span></div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 3, textAlign: 'right', fontWeight: 800, fontSize: px('amount') }}>Total: {model.payment.amount}</div>
+        )
       )}
 
       {/* ---- Footer / barcode ---- */}

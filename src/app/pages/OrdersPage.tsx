@@ -4,7 +4,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import type { Order } from '../../types';
-import { formatDate, formatMoney, startOfDay, ORDER_STATUSES, PAYMENT_STATUSES } from '../../lib/constants';
+import { formatDate, formatMoney, startOfDay, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../lib/constants';
+import { hasDeliverySettings } from '../../lib/delivery';
+import { orderDelivery, orderSubtotal, orderTotal } from '../../lib/format';
 import { Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Pagination, Select, paymentBadgeColor, orderStatusColor } from '../../components/ui';
 import { IconCopy, IconDownload, IconEye, IconList, IconPrinter, IconRefresh, IconSearch, IconTrash } from '../../components/icons';
 import { openPrintPage } from '../../components/label/printFlow';
@@ -27,6 +29,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
     return m ? decodeURIComponent(m[1]) : '';
   });
   const [pay, setPay] = useState('all');
+  const [method, setMethod] = useState('all');
   const [status, setStatus] = useState('all');
   const [date, setDate] = useState<DateFilter>('all');
   const [fromD, setFromD] = useState('');
@@ -40,20 +43,22 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
   const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [xlBusy, setXlBusy] = useState<'today' | 'all' | null>(null);
+  const [xlBusy, setXlBusy] = useState<'today' | 'all' | 'filtered' | null>(null);
   const [dlLabelId, setDlLabelId] = useState<string | null>(null);
 
   const exportCtx = useMemo(() => ({ settings, fields, products }), [settings, fields, products]);
 
-  const downloadExcel = async (kind: 'today' | 'all') => {
+  const downloadExcel = async (kind: 'today' | 'all' | 'filtered', source?: Order[]) => {
     if (xlBusy) return;
     setXlBusy(kind);
     try {
       // Uses the extension's own order cache (mirror of the Google Sheet) —
-      // no extra data source, no full sheet re-download.
-      const { filename, blob, count } = prepareOrdersExport(kind, orders, exportCtx);
+      // no extra data source, no full sheet re-download. 'filtered' exports
+      // exactly the orders currently shown on this page.
+      const rows = kind === 'filtered' && source ? source : orders;
+      const { filename, blob, count } = prepareOrdersExport(kind, rows, exportCtx);
       if (count === 0) {
-        toast('info', kind === 'today' ? 'No orders created today yet.' : 'No orders stored yet.');
+        toast('info', kind === 'today' ? 'No orders created today yet.' : kind === 'filtered' ? 'No orders match the current filters.' : 'No orders stored yet.');
         return;
       }
       downloadBlob(filename, blob);
@@ -96,6 +101,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
       });
     }
     if (pay !== 'all') list = list.filter((o) => o.paymentStatus === pay);
+    if (method !== 'all') list = list.filter((o) => o.paymentMethod === method);
     if (status !== 'all') list = list.filter((o) => o.orderStatus === status);
     const now = Date.now();
     const day = 86400000;
@@ -110,7 +116,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
       if (Number.isFinite(f) && Number.isFinite(t)) list = list.filter((o) => o.createdAt >= f && o.createdAt <= t);
     }
     return [...list].sort((a, b) => b.createdAt - a.createdAt);
-  }, [orders, q, pay, status, date, fromD, toD]);
+  }, [orders, q, pay, method, status, date, fromD, toD]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / perPage));
   const paged = useMemo(() => {
@@ -118,7 +124,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
     return filtered.slice(start, start + perPage);
   }, [filtered, page, perPage]);
 
-  useEffect(() => setPage(1), [q, pay, status, date, filtered.length]);
+  useEffect(() => setPage(1), [q, pay, method, status, date, filtered.length]);
 
   const toggleAll = () => {
     setSelected((prev) => (prev.size === paged.length && paged.length > 0 ? new Set() : new Set(paged.map((o) => o.id))));
@@ -176,6 +182,9 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
           <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('today')} disabled={xlBusy !== null || orders.length === 0} title="Download today's orders as an Excel .xlsx file">
             {xlBusy === 'today' ? <span className="spinner" /> : <>Download Today&rsquo;s Orders</>}
           </Button>
+          <Button variant="secondary" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('filtered', filtered)} disabled={xlBusy !== null || filtered.length === 0} title="Download exactly the orders currently shown (after filters & search) as an Excel .xlsx file">
+            {xlBusy === 'filtered' ? <span className="spinner" /> : <>Download Filtered Orders{filtered.length > 0 ? ` (${filtered.length})` : ''}</>}
+          </Button>
           <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('all')} disabled={xlBusy !== null || orders.length === 0} title="Download all orders as an Excel .xlsx file">
             {xlBusy === 'all' ? <span className="spinner" /> : <>Download All Orders</>}
           </Button>
@@ -199,11 +208,15 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
             <IconSearch width={15} />
             <Input placeholder="Search order no., customer, phone, pincode, product…" value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 34 }} />
           </div>
-          <Select value={pay} onChange={(e) => setPay(e.target.value)} style={{ width: 130 }}>
+          <Select value={pay} onChange={(e) => setPay(e.target.value)} style={{ width: 132 }} title="Filter by payment status">
             <option value="all">Payment: All</option>
             {PAYMENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </Select>
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 140 }}>
+          <Select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: 148 }} title="Filter by payment method">
+            <option value="all">Method: All</option>
+            {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </Select>
+          <Select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 140 }} title="Filter by order status">
             <option value="all">Order: All</option>
             {ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </Select>
@@ -385,7 +398,15 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
           <h4 style={{ fontSize: 13, marginBottom: 8, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Payment</h4>
           <p><Badge color={paymentBadgeColor(order.paymentStatus)}>{order.paymentStatus}</Badge> <span className="small muted">via {order.paymentMethod}</span></p>
           {order.transactionId && <p className="small">Txn: <span className="mono">{order.transactionId}</span></p>}
-          <p style={{ fontWeight: 700 }}>{formatMoney(order.totalAmount)}</p>
+          {hasDeliverySettings(settings.delivery) ? (
+            <div className="small" style={{ marginTop: 6 }}>
+              <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}><span className="muted">Subtotal</span><span>{formatMoney(orderSubtotal(order))}</span></div>
+              <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}><span className="muted">Delivery</span><span>{formatMoney(orderDelivery(order))}</span></div>
+              <div className="row" style={{ justifyContent: 'space-between', gap: 10, fontWeight: 700, fontSize: 14 }}><span>Grand Total</span><span>{formatMoney(orderTotal(order))}</span></div>
+            </div>
+          ) : (
+            <p style={{ fontWeight: 700 }}>{formatMoney(orderTotal(order))}</p>
+          )}
         </div>
         <div>
           <h4 style={{ fontSize: 13, marginBottom: 8, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Status</h4>

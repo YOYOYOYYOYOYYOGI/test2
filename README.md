@@ -223,8 +223,33 @@ After enabling products Night Cream & Face Serum + saving orders:
 - Validation with inline errors (10-digit phones, pincodes, emails, quantities,
   amounts)
 - Orders page: search (order no./customer/phone/pincode/product), filters
-  (payment, order status, date incl. custom), pagination, row actions
-- Order details: view/edit/duplicate/delete, spreadsheet-row info
+  (payment status, **payment method**, order status, **date: Today /
+  Yesterday / Last 7 days / Last 30 days / Custom** — filters combine), pagination,
+  row actions
+- **Download Filtered Orders** — exports exactly the rows currently visible
+  after the filters + search (`orders-filtered-YYYY-MM-DD.xlsx`), alongside
+  Download Today's Orders / Download All Orders
+- Order details: view/edit/duplicate/delete, spreadsheet-row info, and a
+  **Subtotal / Delivery / Grand Total** breakdown
+- **Delivery charge rules** (Settings → Delivery): build your own rules —
+  e.g. *State = Gujarat AND Order Amount < ₹600 → charge ₹100*, *State ≠
+  Gujarat AND Amount < ₹1000 → ₹150* — on State/City/Pincode/amount/any
+  configured field, with Equals / Not equals / Greater than / Less than /
+  Contains; rules run top-to-bottom (**first match wins**, Move Up/Down),
+  fallback to the **default charge**; charge previews live on the New Order
+  form and is stored with the order, shown in order details, on the label
+  (Subtotal/Delivery/Total), in Excel downloads and in the spreadsheet's new
+  **Delivery Charge** / **Total** columns
+- **Duplicate / Matching rules** (Settings → Duplicates): pick any field
+  (Transaction ID, phone, email, any custom field) + Exact / Case-insensitive
+  / Contains comparison, enable per rule; saving an order whose value already
+  exists shows *“Matching <Field> found — TXN… already exists in Order
+  ORD-1001”* with **View Existing Order** / **Continue Anyway** (duplicates
+  are never created silently)
+- Reliable auto order numbers: next number = persisted counter AND past every
+  existing order (imported/manual/deleted orders can never cause a repeated
+  number); the counter survives closing Chrome, changes with your
+  prefix/starting number, and increments only after a successful save
 - Dashboard: today/paid/COD/pending/labels-pending/total-sales cards,
   quick actions, recent orders
 - Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
