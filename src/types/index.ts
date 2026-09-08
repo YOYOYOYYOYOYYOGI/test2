@@ -93,6 +93,9 @@ export interface OldOrderRecord {
   address: string;
   /** raw whatsapp/mobile as imported */
   whatsapp: string;
+  /** separate Mobile Number column, stored as TEXT (never WhatsApp's value;
+   *  blank when the row/file has no mobile). Optional — see normalizePhoneText. */
+  mobile?: string;
   /** extra columns (header -> value) for autofill when they match fields */
   extras?: Record<string, string>;
   /** source row in the uploaded file (1-based, header = 1) */

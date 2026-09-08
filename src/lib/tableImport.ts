@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 import type { OldOrderRecord } from '../types';
 import { makeId } from './constants';
-import { normalizeOrderNumber, normalizePhone } from './normalizePhone';
+import { normalizeOrderNumber, normalizePhone, normalizePhoneText } from './normalizePhone';
 
 export interface ColumnScan {
   /** canonical column name → index in the header row */
@@ -22,7 +22,15 @@ const CANONICAL_ALIASES: Record<string, string[]> = {
   orderNumber: ['order number', 'order no', 'order no.', 'order num', 'order id', 'order'],
   name: ['name', 'customer name', 'client name', 'party name'],
   address: ['address', 'customer address', 'full address', 'shipping address'],
-  whatsapp: ['whatsapp number', 'whatsapp no', 'whatsapp', 'wa number', 'mobile', 'mobile number', 'mobile no', 'phone', 'phone number', 'phone no', 'contact', 'contact number', 'customer whatsapp', 'customer mobile'],
+  // WhatsApp-only spellings — a file that ONLY has a phone-ish column still
+  // maps that column to WhatsApp (see scanHeaders promotion below).
+  whatsapp: ['whatsapp number', 'whatsapp no', 'whatsapp no.', 'whatsapp', 'wa number', 'customer whatsapp'],
+  // Separate Mobile Number column (kept distinct from WhatsApp; optional).
+  mobile: [
+    'mobile number', 'mobile no', 'mobile no.', 'mobile', 'mobile num',
+    'phone', 'phone number', 'phone no', 'phone num', 'contact', 'contact number',
+    'customer mobile', 'telephone',
+  ],
 };
 
 function canonicalOf(header: string): string | null {
@@ -34,7 +42,10 @@ function canonicalOf(header: string): string | null {
   return null;
 }
 
-/** Map header names of the first row into canonical slots (+ extras). */
+/** Map header names of the first row into canonical slots (+ extras). When a
+ *  file has no WhatsApp column at all, its first phone-ish column (e.g.
+ *  "Mobile Number") is promoted to the WhatsApp slot so those files keep
+ *  importing exactly as before. Files with BOTH columns keep them separate. */
 export function scanHeaders(rows: string[][]): ColumnScan {
   const header = rows[0] ?? [];
   const index: Record<string, number> = {};
@@ -47,6 +58,10 @@ export function scanHeaders(rows: string[][]): ColumnScan {
     if (key && !(key in index)) index[key] = i;
     headers.push(h);
   });
+  if (!('whatsapp' in index) && 'mobile' in index) {
+    index.whatsapp = index.mobile;
+    delete index.mobile;
+  }
   return { index, headers };
 }
 
@@ -76,7 +91,8 @@ export function rowsToOldRecords(rows: string[][], scan: ColumnScan, now = Date.
   let skipped = 0;
   const seenRows = new Set<string>();
   const dataRows = rows.slice(1);
-  // raw extras headers (columns beyond the 4 canonical ones)
+  // raw extras headers (columns beyond the canonical ones — incl. the
+  // separate Mobile Number column, which is NOT an extra)
   const extraHeaders: { key: string; idx: number; label: string }[] = [];
   (rows[0] ?? []).forEach((raw, idx) => {
     const h = (raw ?? '').trim();
@@ -95,6 +111,9 @@ export function rowsToOldRecords(rows: string[][], scan: ColumnScan, now = Date.
     if (!orderNumber || !whatsapp) { skipped += 1; return; }
     const name = get(row, scan.index.name);
     const address = get(row, scan.index.address);
+    // separate Mobile Number column — stored as TEXT, blank stays blank
+    // (never copied from WhatsApp); scientific noise cleaned before storing
+    const mobile = normalizePhoneText(get(row, scan.index.mobile)) || undefined;
     const dedupeKey = `${orderNumber.toLowerCase()}|${whatsapp.toLowerCase()}|${name.toLowerCase()}|${address.toLowerCase()}`;
     if (seenRows.has(dedupeKey)) { skipped += 1; return; }
     seenRows.add(dedupeKey);
@@ -109,6 +128,7 @@ export function rowsToOldRecords(rows: string[][], scan: ColumnScan, now = Date.
       name,
       address,
       whatsapp,
+      mobile,
       extras: Object.keys(extras).length ? extras : undefined,
       sourceRow: ri + 2, // header = row 1
       importedAt: now,

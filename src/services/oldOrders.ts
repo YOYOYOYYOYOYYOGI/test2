@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 import type { OldOrderRecord, Order, OrderField, Settings } from '../types';
 import { LS, storage } from './storage';
-import { normalizeOrderNumber, normalizePhone } from '../lib/normalizePhone';
+import { normalizeOrderNumber, normalizePhone, normalizePhoneText } from '../lib/normalizePhone';
 import { resolveFieldColumn } from './spreadsheet/values';
 
 export async function getOldOrders(): Promise<OldOrderRecord[]> {
@@ -77,7 +77,7 @@ export function oldRecordToEntry(rec: OldOrderRecord): PreviousOrderEntry {
     whatsapp: normalizePhone(rec.whatsapp),
     name: rec.name,
     address: rec.address,
-    mobile: '',
+    mobile: normalizePhoneText(rec.mobile ?? ''),
     city: '',
     state: '',
     pincode: '',
@@ -105,6 +105,45 @@ export function currentOrderToEntry(o: Order): PreviousOrderEntry {
     kind: 'order',
     orderId: o.id,
   };
+}
+
+const digitsOnly = (s: string) => (s ?? '').replace(/[^0-9]/g, '');
+
+/**
+ * The chain value an entry contributes when it is picked as the previous
+ * order for a NEW order.
+ *
+ * Rule — the picked entry is normally the IMMEDIATE PARENT, so its complete
+ * order number is reused (4673-4312-3542 → 14000-4673-4312-3542, and picking
+ * 14000-4673-4312-3542 → 14001-14000-4673-4312-3542). The first segment of
+ * an order number is that order's own base counter, which belongs to the
+ * counter sequence that CREATED it:
+ *
+ *  - picking a CURRENT order always reuses the complete order number (its
+ *    base was already consumed by this system), and
+ *  - picking an IMPORTED historical record whose first segment equals the
+ *    current auto base means the record's own base IS the number about to be
+ *    issued — the previous-order portion is the chain that follows that base
+ *    (14031-12772-10086-8491-7489 → previous 12772-10086-8491-7489, so the
+ *    new order number reconstructs 14031-12772-10086-8491-7489 instead of a
+ *    doubled 14031-14031-…).
+ *
+ * Returns null only when an imported record consists solely of that base
+ * number (no chain portion) — the new order then has NO previous order and
+ * keeps the plain auto number.
+ */
+export function entryChainValue(entry: PreviousOrderEntry, baseNumber: string | null | undefined): string | null {
+  const orderNumber = normalizeOrderNumber(entry.orderNumber);
+  if (!orderNumber) return null;
+  if (entry.kind === 'order') return orderNumber;
+  const firstSegment = orderNumber.split('-')[0] ?? '';
+  const base = digitsOnly(baseNumber ?? '');
+  const first = digitsOnly(firstSegment);
+  if (base && first && first.length <= 15 && parseInt(first, 10) === parseInt(base, 10)) {
+    const rest = orderNumber.slice(firstSegment.length).replace(/^-+/, '');
+    return rest || null;
+  }
+  return orderNumber;
 }
 
 /** Pre-built lookup (built once per data change — no per-keystroke scan):

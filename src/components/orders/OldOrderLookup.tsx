@@ -9,18 +9,21 @@
 // ---------------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OldOrderRecord, Order } from '../../types';
-import { createPreviousIndex, type PreviousOrderEntry } from '../../services/oldOrders';
+import { createPreviousIndex, entryChainValue, type PreviousOrderEntry } from '../../services/oldOrders';
 import { normalizePhone, phoneSearchable } from '../../lib/normalizePhone';
 import { Button } from '../ui';
 
-export function OldOrderLookup({ whatsapp, records, orders, excludeOrderId, chosenNumber, onPick }: {
+export function OldOrderLookup({ whatsapp, records, orders, excludeOrderId, baseNumber, chosenNumber, onPick }: {
   whatsapp: string;
   records: OldOrderRecord[];
   /** current orders (order chain entries are included in the results) */
   orders: Order[];
   /** when editing, exclude that order from its own search */
   excludeOrderId?: string;
-  /** order number currently applied to the form (highlighted) */
+  /** current auto number (base only) — decides the chain level contributed
+   *  by imported records whose own base equals it */
+  baseNumber?: string | null;
+  /** chain value currently applied to the form (highlighted) */
   chosenNumber?: string | null;
   onPick: (entry: PreviousOrderEntry) => void;
 }) {
@@ -57,12 +60,15 @@ export function OldOrderLookup({ whatsapp, records, orders, excludeOrderId, chos
   return (
     <div style={{ marginTop: 8, border: '1px solid var(--border-strong)', borderRadius: 9, background: 'var(--bg)', overflow: 'hidden' }}>
       <div style={{ padding: '5px 10px', fontWeight: 700, fontSize: 12, background: 'var(--primary-soft)', color: 'var(--primary-dark)' }}>
-        Previous Orders Found · {results.length} order{results.length === 1 ? '' : 's'}
+        Previous Orders Found — {results.length} Order{results.length === 1 ? '' : 's'}
         {results.some((r) => r.kind === 'order') && <span style={{ fontWeight: 400 }}> (incl. {results.filter((r) => r.kind === 'order').length} recent)</span>}
       </div>
       <div style={{ maxHeight: 210, overflowY: 'auto' }}>
         {results.map((rec) => {
-          const active = rec.orderNumber === chosenNumber;
+          // chain value this row contributes when picked (null = no previous
+          // order portion — the auto base number stays plain)
+          const chain = entryChainValue(rec, baseNumber);
+          const active = chain !== null && chain === chosenNumber;
           return (
             <div
               key={rec.id}
@@ -80,6 +86,14 @@ export function OldOrderLookup({ whatsapp, records, orders, excludeOrderId, chos
                 </div>
                 {rec.address && (
                   <div className="small muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rec.address}</div>
+                )}
+                <div className="small muted" style={{ fontSize: 11.5 }}>
+                  WhatsApp: {phone}{rec.mobile ? ` · Mobile: ${rec.mobile}` : ''}
+                </div>
+                {chain !== null && chain !== rec.orderNumber && (
+                  <div className="small muted" style={{ fontSize: 11.5 }}>
+                    Reusable Previous Order: <span className="mono">{chain}</span>
+                  </div>
                 )}
               </div>
               <Button size="sm" variant={active ? 'secondary' : 'outline'} onClick={() => onPick(rec)}>

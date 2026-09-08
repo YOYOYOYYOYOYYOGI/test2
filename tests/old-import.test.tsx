@@ -12,12 +12,12 @@ import { LS, storage } from '../src/services/storage';
 import { makeDefaultSettingsWithTemplate } from '../src/services/config';
 import { defaultSettings } from '../src/lib/constants';
 import { DemoDriver } from '../src/services/spreadsheet/demoDriver';
-import { normalizeOrderNumber, normalizePhone, phoneSearchable } from '../src/lib/normalizePhone';
+import { normalizeOrderNumber, normalizePhone, normalizePhoneText, phoneSearchable } from '../src/lib/normalizePhone';
 import {
   parseDelimitedText, scanHeaders, missingRequiredColumns, rowsToOldRecords, fileToRows, parseXlsxRows,
 } from '../src/lib/tableImport';
 import { xlsxBlob } from '../src/lib/xlsx';
-import { findOldByWhatsapp, getOldOrders, indexOldOrders, mergeOldOrders } from '../src/services/oldOrders';
+import { currentOrderToEntry, entryChainValue, findOldByWhatsapp, getOldOrders, indexOldOrders, mergeOldOrders, oldRecordToEntry } from '../src/services/oldOrders';
 import { nextCounter, normalizeCounter } from '../src/services/orders';
 import type { OldOrderRecord, Order, Product } from '../src/types';
 
@@ -473,6 +473,256 @@ describe('Settings → Old Data import UI', () => {
       expect((el.textContent ?? '')).toContain('3 old orders stored');
       // new orders untouched
       expect(stored.orders).toHaveLength(0);
+    } finally {
+      root.unmount();
+      el.remove();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v1.0.8 — separate Mobile Number column + chain-level previous-order rule
+// ---------------------------------------------------------------------------
+describe('Mobile Number stays TEXT (separate from WhatsApp)', () => {
+  it('cleans Excel scientific/.0 noise but preserves human spacing', () => {
+    expect(normalizePhoneText('91234 56780')).toBe('91234 56780');
+    expect(normalizePhoneText('6.358800465E9')).toBe('6358800465');
+    expect(normalizePhoneText('9876543210.0')).toBe('9876543210');
+    expect(normalizePhoneText('+91 98765 43210')).toBe('+91 98765 43210');
+    expect(normalizePhoneText('')).toBe('');
+    expect(normalizePhoneText('   ')).toBe('');
+  });
+
+  it('Whatsapp Number and Mobile Number columns are kept separate', () => {
+    const rows = parseDelimitedText([
+      'Order Number,Name,Address,Whatsapp Number,Mobile Number',
+      '4673-4312-3542,Patel Poonam,A-601,8347034843,91234 56780',
+      '3542,Patel Poonam,A-204,6358800465,6.358800465E9',
+      '7489,Trupti Joshi,A-204,6358800465,',
+    ].join('\n'));
+    const scan = scanHeaders(rows);
+    expect(scan.index.whatsapp).toBe(3);
+    expect(scan.index.mobile).toBe(4);
+    const { records, skipped } = rowsToOldRecords(rows, scan);
+    expect(skipped).toBe(0);
+    expect(records[0].whatsapp).toBe('8347034843');
+    expect(records[0].mobile).toBe('91234 56780');
+    expect(records[1].whatsapp).toBe('6358800465');
+    expect(records[1].mobile).toBe('6358800465'); // scientific recovered, as text
+    expect(records[2].whatsapp).toBe('6358800465');
+    expect(records[2].mobile).toBeUndefined(); // blank stays blank — WhatsApp never copied
+    // the mobile column is a real column, not an "extra"
+    expect(records[0].extras ?? {}).not.toHaveProperty('Mobile Number');
+    // entry carries the mobile through to the lookup/autofill
+    expect(oldRecordToEntry(records[0]).mobile).toBe('91234 56780');
+    expect(oldRecordToEntry(records[2]).mobile).toBe('');
+  });
+
+  it('a file with only a phone-ish column still imports it as WhatsApp', () => {
+    const rows = parseDelimitedText('Order Number,Name,Address,Mobile Number\n3542,Patel Poonam,A-601,8347034843\n');
+    const scan = scanHeaders(rows);
+    expect(scan.index.whatsapp).toBe(3);
+    expect(scan.index.mobile).toBeUndefined();
+    expect(missingRequiredColumns(scan)).toEqual([]);
+    const { records, skipped } = rowsToOldRecords(rows, scan);
+    expect(skipped).toBe(0);
+    expect(records[0].whatsapp).toBe('8347034843');
+  });
+});
+
+describe('chain level of a picked order (TEST 1 / TEST 2 semantics)', () => {
+  const rec = (n: string): OldOrderRecord => ({
+    id: `r-${n}`, orderNumber: n, name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1,
+  });
+
+  it('imported record whose own base equals the current auto base contributes its previous portion', () => {
+    const entry = oldRecordToEntry(rec('14031-12772-10086-8491-7489'));
+    expect(entryChainValue(entry, '14031')).toBe('12772-10086-8491-7489');
+    expect(entryChainValue(entry, 'ORD-14031')).toBe('12772-10086-8491-7489');
+    expect(entryChainValue(entry, 'ORD-00014031')).toBe('12772-10086-8491-7489');
+  });
+
+  it('otherwise the complete order number is the immediate parent (chain preserved)', () => {
+    expect(entryChainValue(oldRecordToEntry(rec('14031-12772-10086-8491-7489')), '14032')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(oldRecordToEntry(rec('4673-4312-3542')), 'ORD-1002')).toBe('4673-4312-3542');
+    expect(entryChainValue(oldRecordToEntry(rec('3542')), '14000')).toBe('3542');
+  });
+
+  it('current orders always contribute their complete number', () => {
+    const current = currentOrderToEntry(mkOrder('c1', '14031-12772-10086-8491-7489', 2));
+    expect(entryChainValue(current, '14032')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(current, '14031')).toBe('14031-12772-10086-8491-7489');
+  });
+
+  it('single-segment imported record equal to the base → no previous portion', () => {
+    expect(entryChainValue(oldRecordToEntry(rec('14031')), '14031')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI E2E — chained historical order (14031-12772-10086-8491-7489):
+//   search → row shows mobile + reusable previous → use → autofill (mobile
+//   included) → previous order editable → edited mobile/address saved →
+//   chain continues from the new order with the next base (TEST 1–4).
+// ---------------------------------------------------------------------------
+describe('New Order chain from a chained historical order + Mobile Number', () => {
+  beforeAll(async () => {
+    DemoDriver.resetDemoGrid();
+    await storage.area.clear();
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone, LS.pendingOps]);
+  });
+
+  it('selects 14031-12772-10086-8491-7489 → 14031-… then 14032-14031-… (prefixless counters)', { timeout: 120000 }, async () => {
+    const { settings, fields } = makeDefaultSettingsWithTemplate();
+    settings.demoMode = true;
+    settings.spreadsheet = { provider: 'demo', connected: false, connection: null };
+    settings.order.prefix = '';
+    settings.order.startNumber = 14031;
+    const products: Product[] = [
+      { id: 'p1', name: 'Night Cream', sku: '', price: 499, active: true, createdAt: 1 },
+    ];
+    const recs: OldOrderRecord[] = [
+      {
+        id: 't1', orderNumber: '14031-12772-10086-8491-7489', name: 'Trupti Joshi',
+        address: 'A-204, Plot No. H-3093/11, Aarna Residency, GIDC, Ankleshwar - 393002',
+        whatsapp: '6358800465', mobile: '91234 56780', sourceRow: 2, importedAt: 1,
+      },
+    ];
+    await storage.setMany({
+      [LS.settings]: settings, [LS.fields]: fields, [LS.products]: products,
+      [LS.orders]: [], [LS.oldOrders]: recs, [LS.nextOrderNumber]: 14031, [LS.setupDone]: true,
+    });
+
+    const { el, root, navigate } = await mountApp();
+    try {
+      await act(async () => { navigate('new'); });
+      await act(async () => { await tick(400); });
+      const text = () => el.textContent ?? '';
+
+      const inputs = () => Array.from(el.querySelectorAll('input')) as HTMLInputElement[];
+      const setValue = async (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+        await act(async () => {
+          const proto = Object.getPrototypeOf(input);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          setter?.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await act(async () => { await tick(250); });
+      };
+      const phoneInputs = () => inputs().filter((i) => i.getAttribute('placeholder') === '9876543210');
+
+      // --- TEST 3: search shows the order with name, address, mobile ---
+      await act(async () => { await setValue(phoneInputs()[0], '6358800465'); });
+      await act(async () => { await tick(600); });
+      expect(text()).toContain('Previous Orders Found');
+      expect(text()).toContain('14031-12772-10086-8491-7489');
+      expect(text()).toContain('Trupti Joshi');
+      expect(text()).toContain('Mobile: 91234 56780');
+      expect(text()).toContain('Reusable Previous Order: 12772-10086-8491-7489');
+
+      // --- TEST 1: pick it → previous = 12772-…, auto number reconstructs ---
+      const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      expect(useButtons.length).toBe(1);
+      await act(async () => { useButtons[0].click(); });
+      await act(async () => { await tick(300); });
+
+      const numInput = () => el.querySelector('#order-number') as HTMLInputElement | null;
+      const prevInput = () => el.querySelector('#previous-order-number') as HTMLInputElement | null;
+      expect(numInput()?.value).toBe('14031-12772-10086-8491-7489');
+      expect(prevInput()?.value).toBe('12772-10086-8491-7489');
+      const nameInput = inputs().find((i) => i.getAttribute('placeholder') === 'Customer name');
+      expect(nameInput?.value).toBe('Trupti Joshi');
+      expect(phoneInputs()[1]?.value).toBe('91234 56780'); // separate Mobile field
+      const addrInput = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
+      expect(addrInput?.value).toContain('A-204, Plot No.');
+
+      // --- P8: the previous-order value is user-editable ---
+      await setValue(prevInput()!, '4673-4312-3542');
+      expect(numInput()?.value).toBe('14031-4673-4312-3542');
+      // and it can be removed → only the auto base remains
+      await act(async () => {
+        const rm = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('✕ remove'));
+        expect(rm).toBeTruthy();
+        rm!.click();
+      });
+      await act(async () => { await tick(200); });
+      expect(numInput()?.value).toBe('14031');
+      expect(prevInput()).toBeNull();
+
+      // pick the order again, then edit mobile + address before saving (TEST 4)
+      await act(async () => {
+        const btn = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Use This Order'));
+        expect(btn).toBeTruthy();
+        btn!.click();
+      });
+      await act(async () => { await tick(250); });
+      expect(prevInput()?.value).toBe('12772-10086-8491-7489');
+      await setValue(phoneInputs()[1], '9999999999');
+      await setValue(addrInput!, 'NEW ADDRESS, New City');
+
+      await act(async () => {
+        const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
+        expect(pill).toBeTruthy();
+        pill!.click();
+      });
+      await act(async () => { await tick(150); });
+      await act(async () => {
+        const save = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Save Order'));
+        expect(save).toBeTruthy();
+        save!.click();
+      });
+      await act(async () => { await tick(1600); });
+
+      let stored = await storage.loadAll();
+      let newest = [...stored.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+      expect(newest.orderNumber).toBe('14031-12772-10086-8491-7489');
+      expect(newest.previousOrderNumber).toBe('12772-10086-8491-7489');
+      expect(newest.customer.name).toBe('Trupti Joshi');
+      expect(newest.customer.mobile).toBe('9999999999'); // edited mobile saved
+      expect(newest.customer.address).toBe('NEW ADDRESS, New City');
+      expect(newest.customer.whatsapp).toBe('6358800465');
+      // historical record untouched — mobile & address as imported
+      const old = (await storage.getState<OldOrderRecord[]>(LS.oldOrders)) ?? [];
+      expect(old).toHaveLength(1);
+      expect(old[0].mobile).toBe('91234 56780');
+      expect(old[0].address).toContain('A-204, Plot No.');
+      expect(stored.nextOrderNumber).toBe(14032); // counter continues (TEST 1 semantics: base 14031 was re-issued)
+
+      // --- TEST 2: next order — pick the newly created order → full parent ---
+      await act(async () => { navigate('orders'); });
+      await act(async () => { await tick(300); });
+      await act(async () => { navigate('new'); });
+      await act(async () => { await tick(400); });
+      await act(async () => { await setValue(phoneInputs()[0], '6358800465'); });
+      await act(async () => { await tick(600); });
+      expect(text()).toContain('Previous Orders Found');
+      expect(text()).toContain('recent order'); // current order is listed too
+      const useAll = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      expect(useAll.length).toBe(2); // current order + imported history
+      // newest first → the current 14031-… order is on top
+      await act(async () => { useAll[0].click(); });
+      await act(async () => { await tick(300); });
+      expect(prevInput()?.value).toBe('14031-12772-10086-8491-7489'); // complete parent
+      expect(numInput()?.value).toBe('14032-14031-12772-10086-8491-7489');
+      await act(async () => {
+        const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
+        expect(pill).toBeTruthy();
+        pill!.click();
+      });
+      await act(async () => { await tick(150); });
+      await act(async () => {
+        const save = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Save Order'));
+        expect(save).toBeTruthy();
+        save!.click();
+      });
+      await act(async () => { await tick(1600); });
+
+      stored = await storage.loadAll();
+      newest = [...stored.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+      expect(newest.orderNumber).toBe('14032-14031-12772-10086-8491-7489');
+      expect(newest.previousOrderNumber).toBe('14031-12772-10086-8491-7489');
+      expect(stored.nextOrderNumber).toBe(14033);
+      expect(((await storage.getState<OldOrderRecord[]>(LS.oldOrders)) ?? []).length).toBe(1);
     } finally {
       root.unmount();
       el.remove();

@@ -11,7 +11,7 @@ import { useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import { fileToRows, scanHeaders, missingRequiredColumns, rowsToOldRecords } from '../../lib/tableImport';
 import { clearOldOrders, mergeOldOrders } from '../../services/oldOrders';
-import { normalizePhone } from '../../lib/normalizePhone';
+import { normalizePhone, normalizePhoneText } from '../../lib/normalizePhone';
 import type { OldOrderRecord } from '../../types';
 import { Button, Card } from '../../components/ui';
 import { IconUpload, IconTrash } from '../../components/icons';
@@ -24,6 +24,14 @@ interface PendingImport {
   fileName: string;
 }
 
+interface PreviewRow {
+  orderNumber: string;
+  name: string;
+  whatsapp: string;
+  mobile: string;
+  address: string;
+}
+
 export function OldDataTab() {
   const oldOrders = useAppStore((s) => s.oldOrders);
   const refreshConfig = useAppStore((s) => s.refreshConfig);
@@ -31,7 +39,16 @@ export function OldDataTab() {
   const [busy, setBusy] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [pending, setPending] = useState<PendingImport | null>(null);
-  const [preview, setPreview] = useState<{ orderNumber: string; name: string; whatsapp: string; address: string }[]>([]);
+  const [preview, setPreview] = useState<PreviewRow[]>([]);
+
+  const previewRows = (records: OldOrderRecord[], count: number): PreviewRow[] =>
+    records.slice(0, count).map((r) => ({
+      orderNumber: r.orderNumber,
+      name: r.name,
+      whatsapp: normalizePhone(r.whatsapp),
+      mobile: r.mobile ? normalizePhoneText(r.mobile) : '',
+      address: r.address,
+    }));
 
   /** Phase 1 — read + validate + show the normalized preview. */
   const pickFile = async (file: File) => {
@@ -56,14 +73,7 @@ export function OldDataTab() {
         return;
       }
       setPending({ records, skipped, fileName: file.name });
-      setPreview(
-        records.slice(0, 8).map((r) => ({
-          orderNumber: r.orderNumber,
-          name: r.name,
-          whatsapp: normalizePhone(r.whatsapp),
-          address: r.address,
-        })),
-      );
+      setPreview(previewRows(records, 8));
       toast('info', 'Review the preview', { message: `${records.length} rows ready — numbers are shown cleaned (e.g. 8347034843, never 8.347034843E9).` });
     } catch (e) {
       console.error('[old data import] technical detail:', e);
@@ -81,7 +91,7 @@ export function OldDataTab() {
     try {
       const res = await mergeOldOrders(pending.records);
       await refreshConfig();
-      setPreview(pending.records.slice(0, 5).map((r) => ({ orderNumber: r.orderNumber, name: r.name, whatsapp: normalizePhone(r.whatsapp), address: r.address })));
+      setPreview(previewRows(pending.records, 5));
       const bits = [
         `Imported ${res.added} old order${res.added === 1 ? '' : 's'}`,
         res.skipped > 0 ? `${res.skipped} skipped (already stored)` : undefined,
@@ -127,7 +137,8 @@ export function OldDataTab() {
         <div className="card-pad col" style={{ gap: 12 }}>
           <p className="hint" style={{ margin: 0, lineHeight: 1.6 }}>
             Upload an old customer/order sheet (<b>.xlsx</b> or <b>.csv</b>) with these columns:{' '}
-            <span className="mono">Order Number · Name · Address · Whatsapp Number</span>.
+            <span className="mono">Order Number · Name · Address · Whatsapp Number · Mobile Number</span>.
+            <b> Mobile Number</b> is optional and stays separate from WhatsApp (blank stays blank).
             Extra columns are kept too and autofill matching fields (City, State, Pincode, custom fields…).
           </p>
           <div className="row" style={{ gap: 8 }}>
@@ -147,7 +158,7 @@ export function OldDataTab() {
             <b>How it works</b><br />
             • Imported records are stored separately — they are <b>never</b> counted in the dashboard, today's sales or Excel exports.<br />
             • On the <b>New Order</b> page, typing a WhatsApp number instantly finds that customer's previous orders — imported history <b>and</b> newer orders created from it (the order chain).<br />
-            • Choosing one autofills Name / Address / other fields and appends its order number to the new auto number, e.g. <span className="mono">14000-4673-4312-3542</span> → next time <span className="mono">14001-14000-4673-4312-3542</span>.<br />
+            • Choosing one autofills Name / WhatsApp / Mobile / Address / other fields (everything stays editable) and appends its order number to the new auto number, e.g. <span className="mono">14000-4673-4312-3542</span> → next time <span className="mono">14001-14000-4673-4312-3542</span>.<br />
             • WhatsApp &amp; order numbers are always stored as text — scientific notation (<span className="mono">8.347034843E9</span>) and <span className="mono">.0</span> suffixes are cleaned automatically.
           </div>
         </div>
@@ -158,13 +169,14 @@ export function OldDataTab() {
         <Card title={`Review before importing (${pending.fileName})`}>
           <div className="table-wrap" style={{ margin: 0, maxHeight: 260, overflowY: 'auto' }}>
             <table className="tbl" style={{ fontSize: 12.5 }}>
-              <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Address</th></tr></thead>
+              <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Mobile</th><th>Address</th></tr></thead>
               <tbody>
                 {preview.map((r, i) => (
                   <tr key={i}>
                     <td className="mono">{r.orderNumber}</td>
                     <td>{r.name}</td>
                     <td className="mono">{r.whatsapp}</td>
+                    <td className="mono">{r.mobile || '—'}</td>
                     <td className="small muted">{r.address}</td>
                   </tr>
                 ))}
@@ -189,13 +201,14 @@ export function OldDataTab() {
         <Card title="Imported records">
           <div className="table-wrap" style={{ margin: 0 }}>
             <table className="tbl" style={{ fontSize: 12.5 }}>
-              <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Address</th></tr></thead>
+              <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Mobile</th><th>Address</th></tr></thead>
               <tbody>
                 {preview.map((r, i) => (
                   <tr key={i}>
                     <td className="mono">{r.orderNumber}</td>
                     <td>{r.name}</td>
                     <td className="mono">{r.whatsapp}</td>
+                    <td className="mono">{r.mobile || '—'}</td>
                     <td className="small muted">{r.address}</td>
                   </tr>
                 ))}

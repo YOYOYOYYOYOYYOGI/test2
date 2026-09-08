@@ -262,23 +262,42 @@ After enabling products Night Cream & Face Serum + saving orders:
   saved with them)
 - **Old Customer Data** (Settings → Old Data): import an old customer/order
   **Excel (.xlsx) or CSV** file — required columns Order Number, Name,
-  Address, Whatsapp Number (clear “Required column missing: …” errors, empty
-  rows skipped, extra columns kept). **Two-step import**: pick the file →
-  normalized preview (order numbers shown as `3542`, never `3542.0`; phones
-  as `8347034843`, never `8.347034843E9`) → confirm Import. Identifiers are
-  always stored as STRINGS — scientific notation and `.0` suffixes are
-  converted back (8.347034843E9 → 8347034843) before saving
+  Address, Whatsapp Number, plus an optional separate **Mobile Number**
+  column (blank stays blank — never copied from WhatsApp). Clear “Required
+  column missing: …” errors, empty rows skipped, extra columns kept.
+  **Two-step import**: pick the file → normalized preview (order numbers
+  shown as `3542`, never `3542.0`; phones as `8347034843`, never
+  `8.347034843E9`) → confirm Import. Identifiers are always stored as
+  STRINGS — scientific notation and `.0` suffixes are converted back
+  (8.347034843E9 → 8347034843) before saving; mobile numbers keep their
+  text formatting (`91234 56780`) and are stored separately from WhatsApp
 - New Order page: typing a WhatsApp number debounce-searches a pre-built
   index covering the imported history **and** current orders created from it
-  (the order chain), showing **all** matching orders, newest first — pick
-  the exact one to use as the immediate previous order (e.g. selecting
-  `14000-4673-4312-3542` produces `14001-14000-4673-4312-3542` next time,
-  not the original `4673-4312-3542`); Name/Address/City/State/Pincode/custom
+  (the order chain), showing **all** matching orders (with name, address,
+  WhatsApp and Mobile), newest first — pick the exact one to use as the
+  immediate previous order (e.g. selecting `14000-4673-4312-3542` produces
+  `14001-14000-4673-4312-3542` next time, not the original
+  `4673-4312-3542`). **Chain rule**: the picked order normally becomes the
+  parent as-is; when an *imported* record's own base equals the current auto
+  number (e.g. `14031-12772-10086-8491-7489` while the counter shows 14031)
+  only its previous-order portion is reused (`12772-10086-8491-7489`), so
+  the new number reconstructs `14031-12772-10086-8491-7489` instead of
+  doubling the base. Name/WhatsApp/Mobile/Address/City/State/Pincode/custom
   fields autofill but stay fully editable — historical orders are never
   modified; the auto counter keeps counting (14000, 14001, 14002…) and the
-  chosen previous order number stays visible/removable
+  **Previous Order** value stays visible, editable and removable
   (Previous Order Number column in the spreadsheet & Excel), unknown numbers
   just show “No previous order found.” — never an error
+- **Full Backup & Restore** (Settings → Backup & Restore): export one file —
+  `order-manager-backup-YYYY-MM-DD.json` (`backupVersion: 1`) — containing
+  every order (order numbers, previous order numbers, customer details incl.
+  WhatsApp & Mobile, custom fields, payment, delivery, status), imported
+  historical old data, products, field configuration, delivery & matching
+  rules, order-number state and all settings (label design incl. the logo
+  data URL). Import Backup validates the file (invalid files are rejected
+  with a friendly message and never change data), then **Restore Backup**
+  asks for explicit confirmation before replacing the local data and
+  refreshing the UI — move it to another computer and everything is back
 - Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
   **Download All Orders** (`all-orders.xlsx`) — real `.xlsx` files with bold
   headers, frozen header row, auto-sized columns, dynamic columns from your

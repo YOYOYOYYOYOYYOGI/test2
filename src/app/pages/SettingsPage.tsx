@@ -8,6 +8,7 @@ import { LABEL_SIZES, ORDER_STATUSES, PAYMENT_STATUSES, demoOrders, formatDate }
 import { Badge, Button, Card, Checkbox, ConfirmDialog, Field, Input, Select, TextArea, Toggle, downloadFile } from '../../components/ui';
 import { IconDownload, IconUpload, IconLink } from '../../components/icons';
 import { LS, storage, inExtension } from '../../services/storage';
+import { backupFileName, buildFullBackup, parseBackupFile, restoreBackup, type BackupFile } from '../../services/backup';
 import { bgAuthConnect, bgSyncPendingOrders, bgListSpreadsheets, bgListWorksheets } from '../../services/messaging';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 import { LabelSheetComponent, labelSizePx } from '../../components/label/LabelSheet';
@@ -28,7 +29,7 @@ export function SettingsPage({ go }: { go: (r: string) => void }) {
     { id: 'delivery', label: 'Delivery' },
     { id: 'matching', label: 'Duplicates' },
     { id: 'old', label: 'Old Data' },
-    { id: 'backup', label: 'Backup & Data' },
+    { id: 'backup', label: 'Backup & Restore' },
   ];
   return (
     <div>
@@ -561,18 +562,87 @@ function BackupTab({ go }: { go: (r: string) => void }) {
   const orders = useAppStore((s) => s.orders);
   const [confirmReset, setConfirmReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cfgFileRef = useRef<HTMLInputElement>(null);
+  const [pendingRestore, setPendingRestore] = useState<{ file: BackupFile; fileName: string; size: number } | null>(null);
+  const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
+
+  // ----- full backup -----
+  const exportFullBackup = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const json = await buildFullBackup();
+      downloadFile(backupFileName(), json, 'application/json');
+      const all = await storage.loadAll();
+      toast('success', 'Full backup downloaded', {
+        message: `${all.orders.length} orders · ${all.oldOrders.length} old records · ${all.products.length} products · settings included. Keep the file somewhere safe — restore it on another computer to get everything back.`,
+      });
+    } catch (e) {
+      console.error('[backup] export failed:', e);
+      toast('error', 'Backup failed', { message: e instanceof Error ? e.message : 'Could not build the backup file.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickBackupFile = async (file: File) => {
+    if (busy || restoring) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const res = parseBackupFile(text);
+      if (!res.ok) {
+        toast('error', 'Invalid backup file', { message: res.message });
+        return;
+      }
+      setPendingRestore({ file: res.file, fileName: file.name, size: file.size });
+      toast('info', 'Backup loaded', { message: 'Review it below — nothing is changed until you press Restore Backup.' });
+    } catch (e) {
+      console.error('[backup] import failed:', e);
+      toast('error', 'Could not read that file', { message: e instanceof Error ? e.message : 'Invalid backup file.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelRestore = () => {
+    setPendingRestore(null);
+    setConfirmRestoreOpen(false);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const doRestore = async () => {
+    if (!pendingRestore || restoring) return;
+    setRestoring(true);
+    try {
+      await restoreBackup(pendingRestore.file);
+      await store.refreshConfig(); // reload every page's data from storage
+      toast('success', 'Backup restored successfully', {
+        message: 'Orders, historical data, products, fields, rules, order numbers and label settings are back. Review the data before saving a new order.',
+      });
+      setPendingRestore(null);
+    } catch (e) {
+      console.error('[backup] restore failed:', e);
+      toast('error', 'Restore failed', { message: e instanceof Error ? e.message : 'Could not restore the backup.' });
+    } finally {
+      setRestoring(false);
+      setConfirmRestoreOpen(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const exportOrders = async (format: 'csv' | 'json') => {
     const all: Order[] = orders;
     if (format === 'json') {
       downloadFile(`orders-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 2), 'application/json');
     } else {
-      const headers = ['Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
+      const headers = ['Order Number', 'Previous Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
       const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
       const lines = [headers.join(','), ...all.map((o) => [
-        o.orderNumber, o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
-        Object.values(o.products).map((p) => `${p.productName} x${p.quantity}`).join(' | '),
+        o.orderNumber, o.previousOrderNumber ?? '', o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
+        Object.values(o.products).map((pr) => `${pr.productName} x${pr.quantity}`).join(' | '),
         o.paymentStatus, o.paymentMethod, o.transactionId, o.orderStatus, o.totalAmount, o.printed, formatDate(o.createdAt, true),
       ].map(esc).join(','))];
       downloadFile(`orders-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + lines.join('\n'), 'text/csv');
@@ -598,7 +668,7 @@ function BackupTab({ go }: { go: (r: string) => void }) {
         fields: (Array.isArray(data.fields) ? data.fields : []) as import('../../types').OrderField[],
         products: (Array.isArray(data.products) ? data.products : []) as import('../../types').Product[],
       });
-      await storage.set(LS.nextOrderNumber, (settings.order.startNumber + 1).toString());
+      await storage.set(LS.nextOrderNumber, settings.order.startNumber + 1);
       toast('success', 'Configuration imported', { message: 'Spreadsheet connection was kept. Review settings before saving the next order.' });
     } catch (e) {
       toast('error', 'Import failed', { message: e instanceof Error ? e.message : 'Invalid file.' });
@@ -624,8 +694,56 @@ function BackupTab({ go }: { go: (r: string) => void }) {
     } finally { setBusy(false); }
   };
 
+  const pending = pendingRestore;
+  const fmtDate = (iso: string) => (iso ? String(iso).slice(0, 10) : '—');
+
   return (
     <div style={{ maxWidth: 760 }} className="col">
+      <Card title="Full Backup & Restore">
+        <div className="card-pad col" style={{ gap: 10 }}>
+          <p className="hint" style={{ margin: 0, lineHeight: 1.6 }}>
+            One file with <b>everything</b>: orders (order numbers, previous order numbers, customer details incl. WhatsApp &amp; Mobile, custom fields,
+            payment, delivery, status) · imported historical old data · products · custom fields · delivery rules · matching rules ·
+            order-number settings (prefix, starting number, current counter) · label design (size, logo, fonts, barcode/QR, footer) · general settings.
+            Export on this computer → restore on another → all data and settings are back.
+          </p>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Button variant="primary" icon={<IconDownload width={14} />} disabled={busy || restoring} onClick={() => void exportFullBackup()}>
+              {busy ? <span className="spinner" /> : 'Export Full Backup'}
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={(e) => { const f0 = e.target.files?.[0]; if (f0) void pickBackupFile(f0); else e.target.value = ''; }}
+            />
+            <Button variant="outline" icon={<IconUpload width={14} />} disabled={busy || restoring} onClick={() => fileRef.current?.click()}>
+              Import Backup
+            </Button>
+            <span className="hint">File: <span className="mono">order-manager-backup-YYYY-MM-DD.json</span> (backupVersion: 1)</span>
+          </div>
+          {pending && (
+            <div style={{ border: '1px solid var(--border-strong)', borderRadius: 9, padding: '10px 12px', background: 'var(--warning-soft)' }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>
+                Restore “{pending.fileName}”? <span className="muted" style={{ fontWeight: 400 }}>({Math.round(pending.size / 1024)} KB · exported {fmtDate(pending.file.exportedAt)})</span>
+              </div>
+              <div className="hint" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                Contains <b>{pending.file.data.orders.length}</b> orders · <b>{pending.file.data.oldOrders.length}</b> historical record
+                {pending.file.data.oldOrders.length === 1 ? '' : 's'} · <b>{pending.file.data.products.length}</b> products ·{' '}
+                <b>{pending.file.data.fields.length}</b> fields · next order number <span className="mono">{pending.file.data.nextOrderNumber}</span>.
+                Restoring <b>replaces the current extension data</b> with this backup. The Google Sheets connection stays as it is (reconnect on another computer).
+              </div>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <Button variant="danger" icon={<IconDownload width={13} />} disabled={restoring} onClick={() => setConfirmRestoreOpen(true)}>
+                  {restoring ? <span className="spinner" /> : 'Restore Backup'}
+                </Button>
+                <Button variant="outline" disabled={restoring} onClick={cancelRestore}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
       <Card title="Export orders">
         <div className="card-pad row" style={{ gap: 8 }}>
           <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void exportOrders('csv')}>Export CSV</Button>
@@ -633,14 +751,14 @@ function BackupTab({ go }: { go: (r: string) => void }) {
           <span className="hint">All {orders.length} orders currently stored locally. The spreadsheet itself is always the primary copy of order data.</span>
         </div>
       </Card>
-      <Card title="Backup configuration">
+      <Card title="Configuration file (fields, products & settings only)">
         <div className="card-pad col" style={{ gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
             <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void exportSettings()}>Export Settings</Button>
-            <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={(e) => { const f0 = e.target.files?.[0]; if (f0) void importSettings(f0); e.target.value = ''; }} />
-            <Button variant="outline" icon={<IconUpload width={14} />} onClick={() => fileRef.current?.click()}>Import Settings</Button>
+            <input ref={cfgFileRef} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={(e) => { const f0 = e.target.files?.[0]; if (f0) void importSettings(f0); e.target.value = ''; }} />
+            <Button variant="outline" icon={<IconUpload width={14} />} onClick={() => cfgFileRef.current?.click()}>Import Settings</Button>
           </div>
-          <p className="hint">Fields, products, label design and mappings — everything except orders. Restore this file on another computer to reuse the same configuration.</p>
+          <p className="hint">A lightweight config-only file (no orders/history) for copying your field setup, products, label design and mappings between computers. For everything, use Full Backup above.</p>
         </div>
       </Card>
       <Card title="Sync & connection">
@@ -659,6 +777,13 @@ function BackupTab({ go }: { go: (r: string) => void }) {
           </p>
         </div>
       </Card>
+      <ConfirmDialog open={confirmRestoreOpen} title="Restore Backup?" danger busy={restoring}
+        message={
+          <span>
+            This will replace the current extension data with the selected backup (orders, historical data, products, fields, rules and settings on this computer). Orders already written to Google Sheets are not deleted.
+          </span>
+        }
+        confirmLabel="Restore" onConfirm={() => void doRestore()} onCancel={() => setConfirmRestoreOpen(false)} />
       <ConfirmDialog open={confirmReset} title="Reset everything?"
         message="All local orders, fields, products and settings will be erased from this computer. Rows already written to Google Sheets stay untouched. Continue?"
         confirmLabel="Yes, reset" danger busy={busy} onConfirm={() => void resetAll()} onCancel={() => setConfirmReset(false)} />
@@ -667,4 +792,3 @@ function BackupTab({ go }: { go: (r: string) => void }) {
     </div>
   );
 }
-

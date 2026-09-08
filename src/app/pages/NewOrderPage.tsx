@@ -12,7 +12,7 @@ import { COMPUTED_FIELD_KEYS } from '../../services/config';
 import { makeOrderNumber, nextCounter } from '../../services/orders';
 import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
 import { scanMatches, type MatchHit } from '../../lib/matching';
-import { extraValueForField, type PreviousOrderEntry } from '../../services/oldOrders';
+import { extraValueForField, entryChainValue, type PreviousOrderEntry } from '../../services/oldOrders';
 import { OldOrderLookup } from '../../components/orders/OldOrderLookup';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
@@ -144,9 +144,13 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   }, [counter, selectedOld]);
 
   /** Autofill the form from a previous-order entry (imported history OR a
-   *  current order in the chain) and append ITS number to the auto number.
-   *  The entry is only an autofill template — the user can edit anything
-   *  afterwards and the historical/previous order is never modified. */
+   *  current order in the chain) and append ITS chain value to the auto
+   *  number. The entry is only an autofill template — the user can edit
+   *  anything afterwards and the historical/previous order is never
+   *  modified. Chain rule: the picked entry is normally the IMMEDIATE
+   *  parent (complete number reused); an imported record whose own base
+   *  equals the current auto base contributes only its previous-order
+   *  portion (14031-12772-… → previous 12772-…). */
   const applyOldRecord = (entryIn: PreviousOrderEntry) => {
     const entry: PreviousOrderEntry = { ...entryIn };
     const cust = { ...form.customer };
@@ -168,7 +172,10 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     if (entry.name) cust.name = entry.name;
     if (entry.address) cust.address = entry.address;
     if (entry.whatsapp) cust.whatsapp = entry.whatsapp;
-    if (entry.mobile && !cust.mobile.trim()) cust.mobile = entry.mobile;
+    // template semantics: a known mobile overwrites the field (the user can
+    // edit it afterwards); a missing mobile leaves it alone — never copied
+    // from the WhatsApp number
+    if (entry.mobile) cust.mobile = entry.mobile;
     if (entry.city) cust.city = entry.city;
     if (entry.state) cust.state = entry.state;
     if (entry.pincode) cust.pincode = entry.pincode;
@@ -193,7 +200,9 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           if (k === 'custom') custom[f.id] = v;
       }
     }
-    setSelectedOld(entry.orderNumber);
+    // chain value contributed by this pick (null = no previous order part)
+    const chain = entryChainValue(entry, makeOrderNumber(counter, settings));
+    setSelectedOld(chain);
     setForm((prev) => ({
       ...prev,
       ...patch,
@@ -201,7 +210,9 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
       custom,
       orderNumber: prev.manualNumber
         ? prev.orderNumber
-        : `${makeOrderNumber(counter, settings)}-${entry.orderNumber}`,
+        : chain
+          ? `${makeOrderNumber(counter, settings)}-${chain}`
+          : makeOrderNumber(counter, settings),
     }));
     setErrors({});
   };
@@ -496,12 +507,19 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                     {form.manualNumber && !settings.order.manualNumbering ? 'Manual override for this order only.' : !form.manualNumber ? `Auto — next is ${form.orderNumber}` : 'Manual numbering is on (Settings → Order).'}
                   </span>
                   {errors.orderNumber && <span className="error-text">{errors.orderNumber}</span>}
-                  {selectedOld && !form.manualNumber && (
-                    <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, background: 'var(--primary-soft)', color: 'var(--primary-dark)', padding: '2px 8px', borderRadius: 999, fontWeight: 600 }}>
-                        Previous Order: <span className="mono">{selectedOld}</span>
-                      </span>
-                      <Button size="sm" variant="ghost" title="Remove the old-order number — keep only the auto number" onClick={() => setSelectedOld(null)}>✕ remove</Button>
+                  {selectedOld !== null && !form.manualNumber && (
+                    <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Previous Order:</span>
+                      <Input
+                        id="previous-order-number"
+                        className="mono"
+                        value={selectedOld}
+                        placeholder="e.g. 12772-10086-8491-7489"
+                        title="The order this new order continues from. Editable — the auto number updates automatically."
+                        onChange={(e) => setSelectedOld(e.target.value.trim())}
+                        style={{ width: 250 }}
+                      />
+                      <Button size="sm" variant="ghost" title="Remove the previous-order value — the new order gets only the auto number" onClick={() => setSelectedOld(null)}>✕ remove</Button>
                     </div>
                   )}
                 </>
@@ -535,7 +553,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                       invalid={Boolean(errors['customer.whatsapp'])}
                       onChange={(e) => setCust({ whatsapp: e.target.value })} />
                     {isNewFlow && (
-                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedOld} onPick={applyOldRecord} />
+                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} baseNumber={makeOrderNumber(counter, settings)} chosenNumber={selectedOld} onPick={applyOldRecord} />
                     )}
                   </Field>
                 )

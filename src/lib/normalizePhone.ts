@@ -64,6 +64,25 @@ export function normalizeOrderNumber(raw: unknown): string {
   return s;
 }
 
+/**
+ * Normalize a Mobile Number identifier — always stored as TEXT.
+ * Excel numeric noise is removed first (6.358800465E9 → 6358800465,
+ * 9876543210.0 → 9876543210), but human formatting such as "91234 56780" or
+ * "+91 98765 43210" is preserved exactly — mobile numbers are never searched,
+ * so the digits are not collapsed. Returns '' for empty input.
+ */
+export function normalizePhoneText(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  // Excel wrote a number (exponent and/or decimal point present) — recover
+  // the plain integer; anything else is kept as the source typed it.
+  if (/[.eE]/.test(s)) {
+    const int = decimalWholeToInt(s);
+    if (int !== null) return int;
+  }
+  return s;
+}
+
 /** Display form: order number + phone with nothing scientific ever shown. */
 export function cleanIdentifierDisplay(raw: unknown, kind: 'phone' | 'order'): string {
   return kind === 'phone' ? normalizePhone(raw) : normalizeOrderNumber(raw);
