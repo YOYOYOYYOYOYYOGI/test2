@@ -57,8 +57,9 @@ describe('app boot + wizard (demo)', () => {
     // Done → "Create my first order" navigates to dashboard
     await clickBtn('Create my first order');
     await act(async () => { await tick(350); });
-    // dashboard has quick actions
-    expect(text()).toContain("Today's Orders");
+    // dashboard has quick actions + date-filtered stats (default = Today)
+    expect(text()).toContain('Total Orders');
+    expect(text()).toContain('Product Sales');
     // demo seeded sample orders
     const stored = await storage.loadAll();
     expect(stored.orders.length).toBeGreaterThanOrEqual(4);

@@ -3,6 +3,7 @@
 // Every product may own a "<Name> Qty" column in the spreadsheet.
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
+import type { DragEvent } from 'react';
 import type { Product } from '../../types';
 import { DEFAULT_DEMO_PRODUCTS, makeId } from '../../lib/constants';
 import { Button, Checkbox, Input } from '../ui';
@@ -21,6 +22,8 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
   onToggleSpreadsheetColumn?: (productId: string, include: boolean) => void;
 }) {
   const [drafts, setDrafts] = useState<ProductDraft[]>([]);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   const commit = (rows: ProductDraft[]) => {
     const ready = rows.filter((r) => r.id);
@@ -35,6 +38,27 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
       createdAt: (products.find((p) => p.id === r.id)?.createdAt) ?? now - i,
     }));
     onChange(next);
+  };
+
+  /** Drag handle drop → reorder the catalogue (array order IS the product
+   *  order used by the picker, labels of new orders, Excel & sheet columns). */
+  const reorder = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || from >= products.length || to >= products.length) return;
+    const list = [...products];
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    onChange(list);
+  };
+
+  const onDrop = (e: DragEvent, to: number) => {
+    e.preventDefault();
+    if (dragFrom !== null && dragFrom !== to) reorder(dragFrom, to);
+    setDragFrom(null);
+    setDragOver(null);
+  };
+  const move = (from: number, dir: -1 | 1) => {
+    const to = from + dir;
+    if (to >= 0 && to < products.length) reorder(from, to);
   };
 
   const beginAdd = () => {
@@ -95,11 +119,11 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
           <table className="tbl" style={{ fontSize: 13 }}>
             <thead>
               <tr>
-                <th style={{ width: 60 }}>#</th>
+                <th style={{ width: 118 }} title="Drag ≡ or use ↑/↓ to change the product order used in the picker, Excel, sheet columns and dashboard">Position</th>
                 <th>Product name</th>
                 <th style={{ width: 90 }}>SKU</th>
                 <th style={{ width: 110 }} className="num">Price</th>
-                <th style={{ width: 170 }}>Label name</th>
+                <th style={{ width: 180 }}>Label name (on labels)</th>
                 <th style={{ width: 70 }}>Active</th>
                 {spreadsheetColumnIds && onToggleSpreadsheetColumn && <th style={{ width: 150 }}>Qty column in sheet</th>}
                 <th style={{ width: 46 }} />
@@ -107,8 +131,31 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
             </thead>
             <tbody>
               {products.map((p, i) => (
-                <tr key={p.id}>
-                  <td className="muted small">{i + 1}</td>
+                <tr
+                  key={p.id}
+                  style={{ ...(dragOver === i ? { outline: '2px dashed var(--primary)', outlineOffset: -2 } : {}) }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
+                  onDragLeave={() => setDragOver((cur) => (cur === i ? null : cur))}
+                  onDrop={(e) => onDrop(e, i)}
+                >
+                  <td>
+                    <div className="row" style={{ gap: 2, alignItems: 'center' }}>
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        draggable
+                        title="Drag to reorder"
+                        style={{ cursor: 'grab', color: 'var(--muted)' }}
+                        onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); }}
+                        onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                        onClick={(e) => e.preventDefault()}
+                      >
+                        ≡
+                      </button>
+                      <button className="btn btn-ghost btn-sm btn-icon" title="Move up" disabled={i === 0} style={{ color: 'var(--muted)' }} onClick={() => move(i, -1)}>↑</button>
+                      <button className="btn btn-ghost btn-sm btn-icon" title="Move down" disabled={i === products.length - 1} style={{ color: 'var(--muted)' }} onClick={() => move(i, 1)}>↓</button>
+                      <span className="muted small" style={{ width: 22, textAlign: 'right' }}>{i + 1}</span>
+                    </div>
+                  </td>
                   <td>
                     <Input defaultValue={p.name} className="small" style={{ padding: '4px 8px', fontSize: 13 }}
                       onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== p.name) updateProduct(p.id, { name: v }); }} />
@@ -121,7 +168,10 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
                     <Input type="number" min={0} step="0.01" defaultValue={p.price} className="small" style={{ padding: '4px 8px', fontSize: 13, textAlign: 'right' }}
                       onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v !== p.price) updateProduct(p.id, { price: v }); }} />
                   </td>
-                  <td className="muted small" title="Shown on the label">{(p.labelName || p.name).trim()}</td>
+                  <td title="Shown on the customer label — separate from the product name">
+                    <Input defaultValue={p.labelName ?? ''} placeholder={p.name} className="small" style={{ padding: '4px 8px', fontSize: 13 }}
+                      onBlur={(e) => { const v = e.target.value.trim(); if ((v || undefined) !== (p.labelName?.trim() || undefined)) updateProduct(p.id, { labelName: v || undefined }); }} />
+                  </td>
                   <td><Checkbox checked={p.active} onChange={(e) => updateProduct(p.id, { active: e.target.checked })} /></td>
                   {spreadsheetColumnIds && onToggleSpreadsheetColumn && (
                     <td>
@@ -167,7 +217,7 @@ export function ProductTableEditor({ products, onChange, spreadsheetColumnIds, o
           <div style={{ marginTop: 12 }}><Button variant="outline" size="sm" onClick={addSample}>Load sample products</Button></div>
         </div>
       )}
-      <p className="hint">Tip: product columns like “Night Cream Qty” are created in the spreadsheet automatically when you save an order. Label name is what appears on printed labels.</p>
+      <p className="hint">Product order: drag the ≡ handle (or use ↑/↓) — the saved order is used by the product picker, new-order screen, Excel export, spreadsheet product columns and the dashboard's Product Sales. Label name is what appears on printed labels; product name stays the business name. Historical orders keep the product info saved with them.</p>
     </div>
   );
 }

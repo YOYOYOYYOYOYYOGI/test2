@@ -250,8 +250,16 @@ After enabling products Night Cream & Face Serum + saving orders:
   existing order (imported/manual/deleted orders can never cause a repeated
   number); the counter survives closing Chrome, changes with your
   prefix/starting number, and increments only after a successful save
-- Dashboard: today/paid/COD/pending/labels-pending/total-sales cards,
-  quick actions, recent orders
+- Dashboard: **date filter (Today default / Tomorrow / Yesterday / Last 7 days /
+  Last 30 days / Custom date / Custom range)** drives Total Orders, Total Sales,
+  Paid / COD / Pending counts and a **Product Sales** table (Qty sold, order
+  count, sales amount per product) — all recalculated instantly from the same
+  order store, no refresh/Apply needed; quick actions, recent orders
+- Products page: **drag ≡ or ↑/↓ to set the product order** (persisted — used
+  by the picker, New Order screen, Excel columns, sheet product columns and
+  dashboard Product Sales), **editable Label Name** per product (separate from
+  the product name, shown on customer labels; historical orders keep the info
+  saved with them)
 - Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
   **Download All Orders** (`all-orders.xlsx`) — real `.xlsx` files with bold
   headers, frozen header row, auto-sized columns, dynamic columns from your

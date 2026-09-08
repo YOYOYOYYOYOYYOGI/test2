@@ -46,6 +46,7 @@ export function ProductsPage({ go }: { go: (r: string) => void }) {
         />
       </Card>
       <p className="hint" style={{ marginTop: 10 }}>
+        Product order = the order shown in the picker, Excel, dashboard Product Sales and (for new columns) the spreadsheet — drag the <b>≡</b> handle or use <b>↑/↓</b> on the Products page.
         Columns such as <span className="code-chip">Night Cream Qty</span> are added to the connected spreadsheet only for products whose checkbox is on. New orders always write <b>0</b> for products not in the order.
       </p>
       <p className="hint">
