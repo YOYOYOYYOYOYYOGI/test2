@@ -12,7 +12,7 @@ import { LS, storage } from '../src/services/storage';
 import { makeDefaultSettingsWithTemplate } from '../src/services/config';
 import { defaultSettings } from '../src/lib/constants';
 import { DemoDriver } from '../src/services/spreadsheet/demoDriver';
-import { normalizePhone, phoneSearchable } from '../src/lib/normalizePhone';
+import { normalizeOrderNumber, normalizePhone, phoneSearchable } from '../src/lib/normalizePhone';
 import {
   parseDelimitedText, scanHeaders, missingRequiredColumns, rowsToOldRecords, fileToRows, parseXlsxRows,
 } from '../src/lib/tableImport';
@@ -32,6 +32,25 @@ describe('phone normalization', () => {
     expect(normalizePhone('91 83470 34843')).toBe('8347034843');
     expect(normalizePhone('91-83470-34843')).toBe('8347034843');
   });
+  it('converts scientific notation and decimal noise back to plain digits', () => {
+    expect(normalizePhone('8.320336766E9')).toBe('8320336766');
+    expect(normalizePhone('8.347034843E9')).toBe('8347034843');
+    expect(normalizePhone('9.510864699E9')).toBe('9510864699');
+    expect(normalizePhone('8347034843.0')).toBe('8347034843');
+    expect(normalizePhone('83203 36766')).toBe('8320336766');
+    expect(normalizePhone('+91 8320336766')).toBe('8320336766');
+  });
+
+  it('order numbers are identifiers — always strings, never 3542.0 or E9', () => {
+    expect(normalizeOrderNumber('3542.0')).toBe('3542');
+    expect(normalizeOrderNumber('3542.00')).toBe('3542');
+    expect(normalizeOrderNumber('3542')).toBe('3542');
+    expect(normalizeOrderNumber('4673-4312-3542')).toBe('4673-4312-3542');
+    expect(normalizeOrderNumber('14043-12781-12046-10270-8699-6136-5347-4673-4312-3542')).toBe('14043-12781-12046-10270-8699-6136-5347-4673-4312-3542');
+    expect(normalizeOrderNumber(' 3542 ')).toBe('3542');
+    expect(normalizeOrderNumber('ORD-3542')).toBe('ORD-3542');
+  });
+
   it('search only starts once 10 digits exist', () => {
     expect(phoneSearchable('')).toBe(false);
     expect(phoneSearchable('83470')).toBe(false);
@@ -94,6 +113,20 @@ Sargasan","8347034843"
     // name stays canonical even when the Name column is empty
     expect(records[0].name).toBe('Patel Poonam');
     expect(records[0].sourceRow).toBe(2);
+  });
+
+  it('import normalizes scientific phones and .0 order numbers before storing', () => {
+    const rows = parseDelimitedText(`Order Number,Name,Address,Whatsapp Number
+3542.0,Patel Poonam,A-601,8.347034843E9
+4673-4312-3542,Patel Poonam,A-601,8347034843`);
+    const scan = scanHeaders(rows);
+    const { records } = rowsToOldRecords(rows, scan);
+    expect(records[0].orderNumber).toBe('3542'); // NOT 3542.0
+    expect(records[0].whatsapp).toBe('8347034843'); // NOT 8.347034843E9
+    expect(records[1].orderNumber).toBe('4673-4312-3542');
+    expect(records[1].whatsapp).toBe('8347034843');
+    // both rows kept — order numbers differ
+    expect(records).toHaveLength(2);
   });
 
   it('keeps extra columns for custom-field autofill', () => {
@@ -221,7 +254,7 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
     await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone, LS.pendingOps]);
   });
 
-  it('types whatsapp, sees ALL previous orders, picks one, saves with old order attached', { timeout: 40000 }, async () => {
+  it('types whatsapp, sees ALL previous orders, picks one, saves with old order attached', { timeout: 90000 }, async () => {
     const { settings, fields } = makeDefaultSettingsWithTemplate();
     settings.demoMode = true;
     settings.spreadsheet = { provider: 'demo', connected: false, connection: null };
@@ -328,6 +361,53 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
       const ordersText = el.textContent ?? '';
       expect(ordersText).toContain('ORD-1002-4673-4312-3542');
       expect(ordersText).not.toContain('7489'); // old records never listed as orders
+
+      // -------- ORDER CHAIN: the customer returns again --------
+      await act(async () => { navigate('new'); });
+      await act(async () => { await tick(400); });
+      await setInput('9876543210', '8347034843');
+      const chainText = () => el.textContent ?? '';
+      expect(chainText()).toContain('Previous Orders Found');
+      // ALL orders for this number: the new order + both imported old ones
+      expect(chainText()).toContain('ORD-1002-4673-4312-3542');
+      expect(chainText()).toContain('4673-4312-3542');
+      expect(chainText()).toContain('3542');
+      expect(chainText()).toContain('recent order');
+      // newest first → first "Use This Order" belongs to the recent order
+      const buttons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      expect(buttons.length).toBe(3);
+      await act(async () => { buttons[0].click(); });
+      await act(async () => { await tick(250); });
+      const numInput2 = el.querySelector('#order-number') as HTMLInputElement | null;
+      expect(numInput2?.value).toBe('ORD-1003-ORD-1002-4673-4312-3542');
+      expect(chainText()).toContain('Previous Order:');
+      // customer info editable: change the address before saving
+      const addrInput2 = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
+      expect(addrInput2?.value).toContain('Yogi Platina');
+      await act(async () => {
+        const proto = Object.getPrototypeOf(addrInput2!);
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        setter?.call(addrInput2, 'NEW ADDRESS, New City');
+        addrInput2!.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => { await tick(80); });
+      await act(async () => {
+        const save = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Save Order'));
+        expect(save).toBeTruthy();
+        save!.click();
+      });
+      await act(async () => { await tick(1500); });
+
+      const stored2 = await storage.loadAll();
+      const chainOrder = [...stored2.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+      expect(chainOrder.orderNumber).toBe('ORD-1003-ORD-1002-4673-4312-3542');
+      expect(chainOrder.previousOrderNumber).toBe('ORD-1002-4673-4312-3542'); // immediate parent, not the original
+      expect(chainOrder.customer.address).toBe('NEW ADDRESS, New City'); // edited data saved
+      // original order untouched (still old address)
+      const firstOrder = stored2.orders.find((o) => o.orderNumber === 'ORD-1002-4673-4312-3542')!;
+      expect(firstOrder.customer.address).toContain('Yogi Platina');
+      expect(stored2.nextOrderNumber).toBe(1004); // base counter keeps counting
+      expect((await storage.getState<OldOrderRecord[]>(LS.oldOrders))?.length).toBe(3); // imported history never modified
     } finally {
       root.unmount();
       el.remove();
@@ -336,7 +416,7 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
 });
 
 describe('Settings → Old Data import UI', () => {
-  it('uploads a CSV file and stores the records', { timeout: 40000 }, async () => {
+  it('uploads a CSV file and stores the records', { timeout: 90000 }, async () => {
     await storage.area.clear();
     await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone]);
     const { settings, fields } = makeDefaultSettingsWithTemplate();
@@ -370,6 +450,20 @@ describe('Settings → Old Data import UI', () => {
         Object.defineProperty(input!, 'files', { configurable: true, value: [csv] });
         input!.dispatchEvent(new Event('change', { bubbles: true }));
       });
+      await act(async () => { await tick(900); });
+
+      // Phase 1 preview shows normalized values (no numbers mangled)
+      const previewText = el.textContent ?? '';
+      expect(previewText).toContain('Review before importing');
+      expect(previewText).toContain('9001');
+      expect(previewText).toContain('9876512345');
+      // nothing stored yet (preview only)
+      expect(((await storage.loadAll()).oldOrders ?? []).length).toBe(0);
+
+      // Phase 2 — confirm the import
+      const importBtn = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Import 3 rows'));
+      expect(importBtn, 'import button').toBeTruthy();
+      await act(async () => { importBtn!.click(); });
       await act(async () => { await tick(900); });
 
       const stored = await storage.loadAll();

@@ -1,17 +1,28 @@
 // ---------------------------------------------------------------------------
 // Settings → Old Data: import an old customer/order Excel/CSV file.
-// Records are stored SEPARATELY from new orders (their own storage key) and
-// are used only for WhatsApp → previous-orders lookup + autofill on the
-// New Order page. They are never counted in dashboards/sales/Excel exports.
+//
+// Flow: pick file → validate columns → NORMALIZED PREVIEW (order numbers like
+// "3542" — never "3542.0"; phones like "8347034843" — never "8.347034843E9")
+// → confirm Import → stored SEPARATELY from new orders (own storage key).
+// Imported data is only used for WhatsApp → previous-order lookup + autofill
+// on the New Order page; never counted in dashboards/sales/Excel exports.
 // ---------------------------------------------------------------------------
 import { useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import { fileToRows, scanHeaders, missingRequiredColumns, rowsToOldRecords } from '../../lib/tableImport';
 import { clearOldOrders, mergeOldOrders } from '../../services/oldOrders';
+import { normalizePhone } from '../../lib/normalizePhone';
+import type { OldOrderRecord } from '../../types';
 import { Button, Card } from '../../components/ui';
 import { IconUpload, IconTrash } from '../../components/icons';
 
 const MAX_BYTES = 40 * 1024 * 1024; // 40 MB safety cap
+
+interface PendingImport {
+  records: OldOrderRecord[];
+  skipped: number;
+  fileName: string;
+}
 
 export function OldDataTab() {
   const oldOrders = useAppStore((s) => s.oldOrders);
@@ -19,9 +30,11 @@ export function OldDataTab() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [pending, setPending] = useState<PendingImport | null>(null);
   const [preview, setPreview] = useState<{ orderNumber: string; name: string; whatsapp: string; address: string }[]>([]);
 
-  const importFile = async (file: File) => {
+  /** Phase 1 — read + validate + show the normalized preview. */
+  const pickFile = async (file: File) => {
     if (busy) return;
     if (file.size > MAX_BYTES) {
       toast('error', 'File is too large', { message: 'Please keep old-data files under 40 MB.' });
@@ -42,15 +55,16 @@ export function OldDataTab() {
         toast('info', 'No usable rows found', { message: 'Every row needs an Order Number and a Whatsapp Number.' });
         return;
       }
-      const res = await mergeOldOrders(records);
-      await refreshConfig();
-      setPreview(records.slice(0, 5).map((r) => ({ orderNumber: r.orderNumber, name: r.name, whatsapp: r.whatsapp, address: r.address })));
-      const bits = [
-        `Imported ${res.added} old order${res.added === 1 ? '' : 's'}`,
-        res.skipped > 0 ? `${res.skipped} skipped (empty rows / duplicates)` : undefined,
-        skipped > 0 ? `${skipped} rows skipped in this file` : undefined,
-      ].filter(Boolean).join(' · ');
-      toast('success', `Old customer data imported (${res.total} stored)`, { message: bits });
+      setPending({ records, skipped, fileName: file.name });
+      setPreview(
+        records.slice(0, 8).map((r) => ({
+          orderNumber: r.orderNumber,
+          name: r.name,
+          whatsapp: normalizePhone(r.whatsapp),
+          address: r.address,
+        })),
+      );
+      toast('info', 'Review the preview', { message: `${records.length} rows ready — numbers are shown cleaned (e.g. 8347034843, never 8.347034843E9).` });
     } catch (e) {
       console.error('[old data import] technical detail:', e);
       toast('error', 'Import failed', { message: e instanceof Error ? e.message : 'Could not read that file. Use .xlsx or .csv.' });
@@ -58,6 +72,34 @@ export function OldDataTab() {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
     }
+  };
+
+  /** Phase 2 — confirm: store the reviewed records. */
+  const doImport = async () => {
+    if (!pending || busy) return;
+    setBusy(true);
+    try {
+      const res = await mergeOldOrders(pending.records);
+      await refreshConfig();
+      setPreview(pending.records.slice(0, 5).map((r) => ({ orderNumber: r.orderNumber, name: r.name, whatsapp: normalizePhone(r.whatsapp), address: r.address })));
+      const bits = [
+        `Imported ${res.added} old order${res.added === 1 ? '' : 's'}`,
+        res.skipped > 0 ? `${res.skipped} skipped (already stored)` : undefined,
+        pending.skipped > 0 ? `${pending.skipped} rows skipped in this file (empty / no number)` : undefined,
+      ].filter(Boolean).join(' · ');
+      toast('success', `Old customer data imported (${res.total} stored)`, { message: bits });
+      setPending(null);
+    } catch (e) {
+      console.error('[old data import] technical detail:', e);
+      toast('error', 'Import failed', { message: e instanceof Error ? e.message : 'Could not save the records.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelImport = () => {
+    setPending(null);
+    setPreview([]);
   };
 
   const doClear = async () => {
@@ -94,7 +136,7 @@ export function OldDataTab() {
               type="file"
               accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void importFile(f); }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void pickFile(f); }}
             />
             <Button variant="primary" icon={<IconUpload width={14} />} disabled={busy} onClick={() => fileRef.current?.click()}>
               {busy ? <span className="spinner" /> : 'Import Excel / CSV'}
@@ -104,15 +146,47 @@ export function OldDataTab() {
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.7 }}>
             <b>How it works</b><br />
             • Imported records are stored separately — they are <b>never</b> counted in the dashboard, today's sales or Excel exports.<br />
-            • On the <b>New Order</b> page, typing a WhatsApp number instantly finds that customer's previous orders.<br />
-            • Choosing one autofills Name / Address / other fields and appends the old order number to the new auto number, e.g. <span className="mono">14000-4673-4312-3542</span>.<br />
-            • The same WhatsApp number can appear many times (different old orders) — nothing is deleted or merged automatically.
+            • On the <b>New Order</b> page, typing a WhatsApp number instantly finds that customer's previous orders — imported history <b>and</b> newer orders created from it (the order chain).<br />
+            • Choosing one autofills Name / Address / other fields and appends its order number to the new auto number, e.g. <span className="mono">14000-4673-4312-3542</span> → next time <span className="mono">14001-14000-4673-4312-3542</span>.<br />
+            • WhatsApp &amp; order numbers are always stored as text — scientific notation (<span className="mono">8.347034843E9</span>) and <span className="mono">.0</span> suffixes are cleaned automatically.
           </div>
         </div>
       </Card>
 
-      {preview.length > 0 && (
-        <Card title="Just imported">
+      {/* Preview before import (phase 1 result) */}
+      {pending && (
+        <Card title={`Review before importing (${pending.fileName})`}>
+          <div className="table-wrap" style={{ margin: 0, maxHeight: 260, overflowY: 'auto' }}>
+            <table className="tbl" style={{ fontSize: 12.5 }}>
+              <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Address</th></tr></thead>
+              <tbody>
+                {preview.map((r, i) => (
+                  <tr key={i}>
+                    <td className="mono">{r.orderNumber}</td>
+                    <td>{r.name}</td>
+                    <td className="mono">{r.whatsapp}</td>
+                    <td className="small muted">{r.address}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="hint" style={{ margin: '8px 0 0' }}>
+            {pending.records.length} usable row{pending.records.length === 1 ? '' : 's'}
+            {pending.skipped > 0 ? ` · ${pending.skipped} skipped (empty / missing number)` : ''} — order numbers and WhatsApp numbers are cleaned before saving.
+          </p>
+          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+            <Button variant="primary" disabled={busy} onClick={() => void doImport()}>
+              {busy ? <span className="spinner" /> : `Import ${pending.records.length} row${pending.records.length === 1 ? '' : 's'}`}
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={cancelImport}>Cancel</Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Preview of the last imported batch */}
+      {!pending && preview.length > 0 && (
+        <Card title="Imported records">
           <div className="table-wrap" style={{ margin: 0 }}>
             <table className="tbl" style={{ fontSize: 12.5 }}>
               <thead><tr><th>Order Number</th><th>Name</th><th>WhatsApp</th><th>Address</th></tr></thead>
@@ -131,7 +205,7 @@ export function OldDataTab() {
         </Card>
       )}
 
-      {oldOrders.length === 0 && preview.length === 0 && (
+      {oldOrders.length === 0 && !pending && preview.length === 0 && (
         <p className="hint" style={{ marginTop: 12 }}>Nothing imported yet. Old data is optional — it only powers the previous-order lookup on the New Order page.</p>
       )}
     </div>

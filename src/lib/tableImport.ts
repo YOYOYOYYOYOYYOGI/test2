@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 import type { OldOrderRecord } from '../types';
 import { makeId } from './constants';
+import { normalizeOrderNumber, normalizePhone } from './normalizePhone';
 
 export interface ColumnScan {
   /** canonical column name → index in the header row */
@@ -87,8 +88,10 @@ export function rowsToOldRecords(rows: string[][], scan: ColumnScan, now = Date.
   dataRows.forEach((row, ri) => {
     const isEmpty = (row ?? []).every((c) => !String(c ?? '').trim());
     if (isEmpty) { skipped += 1; return; }
-    const orderNumber = get(row, scan.index.orderNumber);
-    const whatsapp = get(row, scan.index.whatsapp);
+    // Identifiers are ALWAYS strings — normalize scientific notation
+    // (8.347034843E9 → 8347034843) and trailing ".0" (3542.0 → 3542) NOW.
+    const orderNumber = normalizeOrderNumber(get(row, scan.index.orderNumber));
+    const whatsapp = normalizePhone(get(row, scan.index.whatsapp));
     if (!orderNumber || !whatsapp) { skipped += 1; return; }
     const name = get(row, scan.index.name);
     const address = get(row, scan.index.address);

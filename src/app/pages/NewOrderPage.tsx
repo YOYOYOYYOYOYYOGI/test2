@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
-import type { OldOrderRecord, Order, OrderField, Product, Settings } from '../../types';
+import type { Order, OrderField, Product, Settings } from '../../types';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, formatMoney } from '../../lib/constants';
 import { Button, Checkbox, Field, Input, Modal, Select, TextArea } from '../../components/ui';
 import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons';
@@ -12,7 +12,7 @@ import { COMPUTED_FIELD_KEYS } from '../../services/config';
 import { makeOrderNumber, nextCounter } from '../../services/orders';
 import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
 import { scanMatches, type MatchHit } from '../../lib/matching';
-import { extraValueForField } from '../../services/oldOrders';
+import { extraValueForField, type PreviousOrderEntry } from '../../services/oldOrders';
 import { OldOrderLookup } from '../../components/orders/OldOrderLookup';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
@@ -143,27 +143,46 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counter, selectedOld]);
 
-  /** Autofill the form from an imported old order + append its number. */
-  const applyOldRecord = (rec: OldOrderRecord) => {
+  /** Autofill the form from a previous-order entry (imported history OR a
+   *  current order in the chain) and append ITS number to the auto number.
+   *  The entry is only an autofill template — the user can edit anything
+   *  afterwards and the historical/previous order is never modified. */
+  const applyOldRecord = (entryIn: PreviousOrderEntry) => {
+    const entry: PreviousOrderEntry = { ...entryIn };
     const cust = { ...form.customer };
     const custom = { ...form.custom };
     const patch: Partial<FormState> = {};
-    if (rec.name) cust.name = rec.name;
-    if (rec.address) cust.address = rec.address;
-    if (rec.whatsapp) cust.whatsapp = rec.whatsapp;
+    // imported history carries extra COLUMN headers — resolve city/state/
+    // pincode/mobile from columns that match the configured fields
+    if (entry.extras) {
+      const byKey = (key: string) => sortedFields.find((f) => f.key === key);
+      const resolveExtra = (key: string) => {
+        const f = byKey(key);
+        return f ? extraValueForField(entry, f, settings) : '';
+      };
+      if (!entry.city) entry.city = resolveExtra('customerCity');
+      if (!entry.state) entry.state = resolveExtra('customerState');
+      if (!entry.pincode) entry.pincode = resolveExtra('customerPincode');
+      if (!entry.mobile) entry.mobile = resolveExtra('customerMobile');
+    }
+    if (entry.name) cust.name = entry.name;
+    if (entry.address) cust.address = entry.address;
+    if (entry.whatsapp) cust.whatsapp = entry.whatsapp;
+    if (entry.mobile && !cust.mobile.trim()) cust.mobile = entry.mobile;
+    if (entry.city) cust.city = entry.city;
+    if (entry.state) cust.state = entry.state;
+    if (entry.pincode) cust.pincode = entry.pincode;
     for (const f of sortedFields) {
       const k = String(f.key);
-      if (['customerName', 'customerWhatsapp', 'customerAddress', 'orderNumber'].includes(k)) continue;
+      if (['customerName', 'customerWhatsapp', 'customerAddress', 'customerMobile', 'customerCity', 'customerState', 'customerPincode', 'orderNumber'].includes(k)) continue;
       if (COMPUTED_FIELD_KEYS.has(k)) continue;
       if (f.type === 'checkbox' || f.type === 'product' || f.type === 'quantity') continue;
-      if (k === 'customerMobile' && cust.mobile.trim()) continue; // never overwrite a typed number
-      const v = extraValueForField(rec, f, settings);
+      // current-order sources carry custom values by FIELD ID; imported
+      // history carries extra COLUMN headers matched against the field
+      let v = entry.customByFieldId ? String(entry.customByFieldId[f.id] ?? '') : '';
+      if (!v && entry.extras) v = extraValueForField(entry, f, settings);
       if (!v) continue;
       switch (k) {
-        case 'customerMobile': cust.mobile = v; break;
-        case 'customerCity': cust.city = v; break;
-        case 'customerState': cust.state = v; break;
-        case 'customerPincode': cust.pincode = v; break;
         case 'paymentStatus': if ((PAYMENT_STATUSES as string[]).includes(v)) patch.paymentStatus = v; break;
         case 'paymentMethod': if ((PAYMENT_METHODS as string[]).includes(v)) patch.paymentMethod = v; break;
         case 'orderStatus': if ((ORDER_STATUSES as string[]).includes(v)) patch.orderStatus = v; break;
@@ -174,7 +193,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           if (k === 'custom') custom[f.id] = v;
       }
     }
-    setSelectedOld(rec.orderNumber);
+    setSelectedOld(entry.orderNumber);
     setForm((prev) => ({
       ...prev,
       ...patch,
@@ -182,7 +201,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
       custom,
       orderNumber: prev.manualNumber
         ? prev.orderNumber
-        : `${makeOrderNumber(counter, settings)}-${rec.orderNumber}`,
+        : `${makeOrderNumber(counter, settings)}-${entry.orderNumber}`,
     }));
     setErrors({});
   };
@@ -516,7 +535,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                       invalid={Boolean(errors['customer.whatsapp'])}
                       onChange={(e) => setCust({ whatsapp: e.target.value })} />
                     {isNewFlow && (
-                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} chosenNumber={selectedOld} onPick={applyOldRecord} />
+                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedOld} onPick={applyOldRecord} />
                     )}
                   </Field>
                 )

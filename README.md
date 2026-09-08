@@ -263,14 +263,20 @@ After enabling products Night Cream & Face Serum + saving orders:
 - **Old Customer Data** (Settings → Old Data): import an old customer/order
   **Excel (.xlsx) or CSV** file — required columns Order Number, Name,
   Address, Whatsapp Number (clear “Required column missing: …” errors, empty
-  rows skipped, extra columns kept); stored SEPARATELY from new orders and
-  never counted in dashboards/sales/Excel exports
-- New Order page: typing a WhatsApp number debounce-searches the imported
-  history (normalized +91/space/hyphen handling) and shows **all** previous
-  orders for that number — pick one to autofill Name/Address/extra matching
-  fields, and the auto number becomes
-  `14000-4673-4312-3542` (auto counter + old order number, counter keeps
-  counting 14001/14002…); the old order number is saved on the order
+  rows skipped, extra columns kept). **Two-step import**: pick the file →
+  normalized preview (order numbers shown as `3542`, never `3542.0`; phones
+  as `8347034843`, never `8.347034843E9`) → confirm Import. Identifiers are
+  always stored as STRINGS — scientific notation and `.0` suffixes are
+  converted back (8.347034843E9 → 8347034843) before saving
+- New Order page: typing a WhatsApp number debounce-searches a pre-built
+  index covering the imported history **and** current orders created from it
+  (the order chain), showing **all** matching orders, newest first — pick
+  the exact one to use as the immediate previous order (e.g. selecting
+  `14000-4673-4312-3542` produces `14001-14000-4673-4312-3542` next time,
+  not the original `4673-4312-3542`); Name/Address/City/State/Pincode/custom
+  fields autofill but stay fully editable — historical orders are never
+  modified; the auto counter keeps counting (14000, 14001, 14002…) and the
+  chosen previous order number stays visible/removable
   (Previous Order Number column in the spreadsheet & Excel), unknown numbers
   just show “No previous order found.” — never an error
 - Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
