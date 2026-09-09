@@ -5,9 +5,10 @@
 //   orders (order numbers, previous order number, customer info incl.
 //     WhatsApp/Mobile, custom field values, payment, delivery, status),
 //   imported historical old data, products, field configuration, delivery
-//   rules, matching rules, order-number settings (prefix/start/current
-//   counter) and every other setting (label design incl. the logo data URL,
-//   business info, spreadsheet column mappings …).
+//   rules, matching rules and every other setting (label design incl. the
+//   logo data URL, business info, spreadsheet column mappings …). Order
+//   numbers are fully manual — each saved order keeps its own final number,
+//   previous-order chain and previous-sequence reference in its row.
 //
 // The file is versioned (backupVersion: 1) so future versions can migrate
 // older backups. Restore REPLACES the current local data with the backup
@@ -27,8 +28,6 @@ export interface BackupData {
   products: Product[];
   orders: Order[];
   oldOrders: OldOrderRecord[];
-  /** next auto counter (order-number settings: current counter/next number) */
-  nextOrderNumber: number;
   setupDone: boolean;
 }
 
@@ -58,7 +57,6 @@ export async function buildFullBackup(): Promise<string> {
       products: s.products,
       orders: s.orders,
       oldOrders: s.oldOrders,
-      nextOrderNumber: s.nextOrderNumber,
       setupDone: s.setupDone,
     },
   };
@@ -105,16 +103,15 @@ export function parseBackupFile(text: string): ParseResult | ParseFailure {
     return { ok: false, message: 'Invalid backup file. Please select a valid Order Manager backup.' };
   }
   const oldOrders = Array.isArray(d.oldOrders) ? d.oldOrders : [];
-  const nextOrderNumber = typeof d.nextOrderNumber === 'number' && Number.isFinite(d.nextOrderNumber) && d.nextOrderNumber > 0
-    ? d.nextOrderNumber
-    : undefined;
+  // legacy v1 files may carry nextOrderNumber / order.startNumber (auto
+  // counters) — ignored, order numbers are manual now and each order row
+  // stores its own numbers
   const data: BackupData = {
     settings: d.settings as Settings,
     fields: d.fields as OrderField[],
     products: d.products as Product[],
     orders: d.orders as Order[],
     oldOrders: oldOrders as OldOrderRecord[],
-    nextOrderNumber: nextOrderNumber ?? (d.settings as Settings).order?.startNumber ?? 1001,
     setupDone: d.setupDone === undefined ? true : Boolean(d.setupDone),
   };
   return { ok: true, file: { app: obj.app, backupVersion: obj.backupVersion, exportedAt: String(obj.exportedAt ?? ''), data } };
@@ -146,7 +143,6 @@ export async function restoreBackup(file: BackupFile): Promise<void> {
     [LS.products]: data.products,
     [LS.orders]: data.orders,
     [LS.oldOrders]: data.oldOrders,
-    [LS.nextOrderNumber]: data.nextOrderNumber,
     [LS.setupDone]: data.setupDone,
   });
   // transient derived data must not survive a restore

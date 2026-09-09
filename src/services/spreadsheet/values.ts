@@ -41,13 +41,13 @@ export function desiredColumns(
   } else {
     extras.push('Total');
   }
-  extras.push('Previous Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At');
+  extras.push('Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At');
   return [...included, ...productCols, ...extras];
 }
 
 /** Extra fixed system columns always created. */
 export function systemColumns(): string[] {
-  return ['Delivery Charge', 'Total', 'Previous Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
+  return ['Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
 }
 
 interface Ctx {
@@ -153,6 +153,7 @@ export function buildRowForHeaders(
   setMoneyByName('Delivery Charge', order.deliveryCharge ?? 0);
   setMoneyByName('Total', orderTotal(order));
   setByName('Previous Order Number', order.previousOrderNumber ?? '');
+  setByName('Previous Sequence Order Number', order.previousSequenceOrderNumber ?? '');
   setByName('Label Status', order.printed);
   setByName('Printed At', order.printedAt ? formatDateTime(order.printedAt) : '');
   setByName('Created At', formatDateTime(order.createdAt));

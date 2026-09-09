@@ -14,7 +14,6 @@ interface AppState {
   products: Product[];
   orders: Order[];
   oldOrders: OldOrderRecord[];
-  counter: number;
   setupComplete: boolean;
 
   init(): Promise<void>;
@@ -28,7 +27,6 @@ interface AppState {
   addOrder(order: Order, replace?: boolean): Promise<void>;
   updateOrderInList(order: Order): Promise<void>;
   removeOrder(id: string): Promise<void>;
-  setCounter(n: number): Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -38,7 +36,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   products: [],
   orders: [],
   oldOrders: [],
-  counter: 0,
   setupComplete: false,
 
   async init() {
@@ -56,7 +53,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       products: s.products,
       orders: s.orders,
       oldOrders: s.oldOrders,
-      counter: s.nextOrderNumber,
       setupComplete: s.setupDone,
       ready: true,
     });
@@ -70,7 +66,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           changes[LS.fields] ||
           changes[LS.products] ||
           changes[LS.oldOrders] ||
-          changes[LS.nextOrderNumber] ||
           changes[LS.setupDone]
         ) {
           void get().refreshConfig();
@@ -87,7 +82,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       products: s.products,
       orders: s.orders,
       oldOrders: s.oldOrders,
-      counter: s.nextOrderNumber,
       setupComplete: s.setupDone,
     });
   },
@@ -135,11 +129,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = get().orders.filter((o) => o.id !== id);
     await storage.set(LS.orders, next);
     set({ orders: next });
-  },
-
-  async setCounter(n) {
-    await storage.set(LS.nextOrderNumber, n);
-    set({ counter: n });
   },
 }));
 

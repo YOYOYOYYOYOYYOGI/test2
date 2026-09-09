@@ -107,84 +107,84 @@ export function currentOrderToEntry(o: Order): PreviousOrderEntry {
   };
 }
 
-const digitsOnly = (s: string) => (s ?? '').replace(/[^0-9]/g, '');
-
 /**
- * The chain value an entry contributes when it is picked as the previous
- * order for a NEW order.
- *
- * Rule — the picked entry is normally the IMMEDIATE PARENT, so its complete
- * order number is reused (4673-4312-3542 → 14000-4673-4312-3542, and picking
- * 14000-4673-4312-3542 → 14001-14000-4673-4312-3542). The first segment of
- * an order number is that order's own base counter, which belongs to the
- * counter sequence that CREATED it:
- *
- *  - picking a CURRENT order always reuses the complete order number (its
- *    base was already consumed by this system), and
- *  - picking an IMPORTED historical record whose first segment equals the
- *    current auto base means the record's own base IS the number about to be
- *    issued — the previous-order portion is the chain that follows that base
- *    (14031-12772-10086-8491-7489 → previous 12772-10086-8491-7489, so the
- *    new order number reconstructs 14031-12772-10086-8491-7489 instead of a
- *    doubled 14031-14031-…).
- *
- * Returns null only when an imported record consists solely of that base
- * number (no chain portion) — the new order then has NO previous order and
- * keeps the plain auto number.
+ * The order number an entry contributes when picked as the customer previous
+ * order — always its COMPLETE order number. There is no automatic base or
+ * counter anymore: the New Order screen loads this full number into the
+ * editable Order Number field and the user edits the beginning themselves
+ * (15000-14030-…). Returns null only for an empty number.
  */
-export function entryChainValue(entry: PreviousOrderEntry, baseNumber: string | null | undefined): string | null {
+export function entryChainValue(entry: PreviousOrderEntry, _baseNumber?: string | null | undefined): string | null {
   const orderNumber = normalizeOrderNumber(entry.orderNumber);
-  if (!orderNumber) return null;
-  if (entry.kind === 'order') return orderNumber;
-  const firstSegment = orderNumber.split('-')[0] ?? '';
-  const base = digitsOnly(baseNumber ?? '');
-  const first = digitsOnly(firstSegment);
-  if (base && first && first.length <= 15 && parseInt(first, 10) === parseInt(base, 10)) {
-    const rest = orderNumber.slice(firstSegment.length).replace(/^-+/, '');
-    return rest || null;
-  }
-  return orderNumber;
+  return orderNumber || null;
 }
 
 /** Pre-built lookup (built once per data change — no per-keystroke scan):
- *  WhatsApp number → previous-order candidates, current orders FIRST (newest
- *  first), then imported history in file order. */
+ *  a normalized phone number (WhatsApp OR Mobile, digits only) →
+ *  previous-order candidates. Current orders come FIRST (newest first), then
+ *  imported history (most recently imported rows first). Numbers are always
+ *  matched as TEXT identifiers — never as numbers — so nothing can turn into
+ *  scientific notation. */
 export interface PreviousIndex {
-  find(rawWhatsapp: string | undefined, excludeOrderId?: string): PreviousOrderEntry[];
+  find(rawPhone: string | undefined, excludeOrderId?: string): PreviousOrderEntry[];
+}
+
+/** Index an order under every phone identifier it carries. */
+function indexOrder(map: Map<string, Order[]>, order: Order): void {
+  const phones = new Set<string>();
+  const wa = normalizePhone(order.customer.whatsapp);
+  const mob = normalizePhone(order.customer.mobile ?? '');
+  if (wa.length >= 10) phones.add(wa);
+  if (mob.length >= 10 && mob !== wa) phones.add(mob);
+  for (const n of phones) {
+    const list = map.get(n);
+    if (list) list.push(order);
+    else map.set(n, [order]);
+  }
+}
+
+/** Index an imported old record under every phone identifier it carries. */
+function indexOld(map: Map<string, OldOrderRecord[]>, rec: OldOrderRecord): void {
+  const phones = new Set<string>();
+  const wa = normalizePhone(rec.whatsapp);
+  const mob = normalizePhone(rec.mobile ?? '');
+  if (wa.length >= 10) phones.add(wa);
+  if (mob.length >= 10 && mob !== wa) phones.add(mob);
+  for (const n of phones) {
+    const list = map.get(n);
+    if (list) list.push(rec);
+    else map.set(n, [rec]);
+  }
 }
 
 export function createPreviousIndex(oldRecords: OldOrderRecord[], orders: Order[]): PreviousIndex {
   const oldByPhone = new Map<string, OldOrderRecord[]>();
-  for (const rec of oldRecords) {
-    const n = normalizePhone(rec.whatsapp);
-    if (n.length < 10) continue;
-    const list = oldByPhone.get(n);
-    if (list) list.push(rec);
-    else oldByPhone.set(n, [rec]);
-  }
+  for (const rec of oldRecords) indexOld(oldByPhone, rec);
   const ordersByPhone = new Map<string, Order[]>();
-  for (const o of orders) {
-    const n = normalizePhone(o.customer.whatsapp);
-    if (n.length < 10) continue;
-    const list = ordersByPhone.get(n);
-    if (list) list.push(o);
-    else ordersByPhone.set(n, [o]);
-  }
-  const sortOrders = (arr: Order[]) => arr.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  for (const o of orders) indexOrder(ordersByPhone, o);
   return {
     find(raw, excludeOrderId) {
       const n = normalizePhone(raw);
       if (n.length < 10) return [];
       const entries: PreviousOrderEntry[] = [];
+      const seenIds = new Set<string>();
+      const sortOrders = (arr: Order[]) => [...arr].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
       for (const o of sortOrders(ordersByPhone.get(n) ?? [])) {
         if (excludeOrderId && o.id === excludeOrderId) continue;
+        if (seenIds.has(o.id)) continue;
+        seenIds.add(o.id);
         entries.push(currentOrderToEntry(o));
       }
-      // only orders with at least one real detail beyond the bare number
-      const olds = (oldByPhone.get(n) ?? [])
-        .map(oldRecordToEntry)
-        .filter((e) => e.name || e.address || e.orderNumber);
-      entries.push(...olds);
+      const sortOlds = (arr: OldOrderRecord[]) =>
+        [...arr].sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0) || (a.sourceRow ?? 0) - (b.sourceRow ?? 0));
+      for (const rec of sortOlds(oldByPhone.get(n) ?? [])) {
+        const entry = oldRecordToEntry(rec);
+        // only rows with at least one real detail beyond the bare number
+        if (!(entry.name || entry.address || entry.orderNumber)) continue;
+        if (seenIds.has(entry.id)) continue;
+        seenIds.add(entry.id);
+        entries.push(entry);
+      }
       return entries;
     },
   };

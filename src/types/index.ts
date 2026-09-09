@@ -182,6 +182,10 @@ export interface Order {
   /** old order number this new order was created from (e.g. 4673-4312-3542),
    *  visible separately from the composed new order number */
   previousOrderNumber?: string;
+  /** informational reference only — the latest existing SIMPLE numeric order
+   *  number below this order's number (e.g. 14999 for 15000). Never used in
+   *  the order number itself, never linked, never chained. */
+  previousSequenceOrderNumber?: string;
   printed: PrintedStatusValue;
   printedAt: number | null;
   createdAt: number;
@@ -227,18 +231,6 @@ export interface LabelFieldChoice {
   /** Bound field id, or a reserved key like 'label.orderNumber' */
   key: string;
   label: string;
-}
-
-export interface OrderNumberConfig {
-  enabled: boolean;
-  /** prefix e.g. ORD- */
-  prefix: string;
-  /** first order counter, e.g. 1001 */
-  start: number;
-  /** width of zero padding applied to the counter (0 = none) */
-  padding: number;
-  /** true = admin types the order number; false = generate automatically */
-  manual: boolean;
 }
 
 export type LabelFontKey =
@@ -300,14 +292,10 @@ export interface Settings {
     headers?: Record<string, number>;
   };
   order: {
-    prefix: string;
-    startNumber: number;
-    padding: number;
-    autoNumber: boolean;
-    /** 0 = manual entry */
+    /** order numbers are always typed manually by the user — there is no
+     *  automatic generator, counter, prefix or start number */
     defaultPaymentStatus: PaymentStatusValue;
     defaultOrderStatus: OrderStatusValue;
-    manualNumbering: boolean;
   };
   products: {
     /** list of product ids currently placed in the spreadsheet (as "<name> Qty") */

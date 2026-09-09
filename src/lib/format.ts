@@ -2,7 +2,6 @@
 // Validation helpers + friendly error messages (used by form + order service)
 // ---------------------------------------------------------------------------
 import type { FieldType, Product } from '../types';
-import { PAYMENT_METHODS, PAYMENT_STATUSES } from './constants';
 import { formatMoney as fmtMoney } from './constants';
 
 export interface FieldValidation {
@@ -113,43 +112,6 @@ export function validateFieldValue(
   return null;
 }
 
-/** Field-level validation of a bound form (order core fields). */
-export function validateOrderCore(o: {
-  orderNumber?: string;
-  autoNumber: boolean;
-  customer: { name: string; whatsapp: string; mobile: string; address: string; city: string; state: string; pincode: string };
-  requiredChecks?: { name?: boolean; whatsapp?: boolean; mobile?: boolean; address?: boolean; city?: boolean; state?: boolean; pincode?: boolean; orderNumber?: boolean; paymentStatus?: boolean };
-  paymentStatus?: string;
-  paymentMethod?: string;
-  hasProducts?: boolean;
-  productsRequired?: boolean;
-}): FieldValidation[] {
-  const errors: FieldValidation[] = [];
-  const c = o.requiredChecks ?? {};
-  const push = (ok: boolean | undefined, key: string, error?: string) => {
-    if (ok && error) errors.push({ field: key, error, inlineKey: key });
-  };
-  push(c.orderNumber, 'orderNumber', validateRequired(o.orderNumber ?? '', 'Order Number') ?? '');
-  push(c.name, 'name', validateRequired(o.customer.name, 'Customer Name') ?? '');
-  push(c.whatsapp, 'whatsapp', validatePhone(o.customer.whatsapp, 'WhatsApp number') ?? validateRequired(o.customer.whatsapp, 'WhatsApp Number') ?? '');
-  push(c.mobile, 'mobile', validatePhone(o.customer.mobile, 'Mobile number') ?? '');
-  push(c.address, 'address', validateRequired(o.customer.address, 'Address') ?? '');
-  push(c.city, 'city', validateRequired(o.customer.city, 'City') ?? '');
-  push(c.state, 'state', validateRequired(o.customer.state, 'State') ?? '');
-  push(c.pincode, 'pincode', validatePincode(o.customer.pincode) ?? '');
-  push(c.paymentStatus, 'paymentStatus', o.paymentStatus ? undefined : 'Payment Status is required.');
-  if (o.paymentMethod && !PAYMENT_METHODS.includes(o.paymentMethod as never)) {
-    errors.push({ field: 'paymentMethod', error: 'Select a valid payment method.', inlineKey: 'paymentMethod' });
-  }
-  if (o.paymentStatus && !PAYMENT_STATUSES.includes(o.paymentStatus as never)) {
-    errors.push({ field: 'paymentStatus', error: 'Select a valid payment status.', inlineKey: 'paymentStatus' });
-  }
-  if (o.productsRequired && !o.hasProducts) {
-    errors.push({ field: 'products', error: 'Add at least one product to the order.', inlineKey: 'products' });
-  }
-  return errors.filter((e) => e.error && e.error.length > 0);
-}
-
 /** Finds the duplicate order and builds the friendly duplicate message. */
 export function duplicateMessage(orderNumber: string): string {
   return `Order ${orderNumber} already exists.`;
@@ -189,12 +151,6 @@ export function productsSummary(products: Record<string, { quantity: number; pro
   return Object.values(products)
     .map((p) => `${p.productName} x${p.quantity}`)
     .join(', ');
-}
-
-/** Format an order-number counter with padding, e.g. (1001, 4) -> "1001" */
-export function padCounter(n: number, padding: number): string {
-  if (!padding || padding <= 0) return String(n);
-  return String(n).padStart(padding, '0');
 }
 
 export function isActiveProduct(p: Product): boolean {

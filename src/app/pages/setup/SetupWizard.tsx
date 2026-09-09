@@ -14,7 +14,6 @@ import { FieldBuilder } from '../../../components/fields/FieldBuilder';
 import { ProductTableEditor } from '../../../components/products/ProductTableEditor';
 import { navigate } from '../../router';
 import { LogoMark } from '../../Shell';
-import { setCounter } from '../../../services/orders';
 
 type Step = 'welcome' | 'connect' | 'fields' | 'products' | 'done';
 type ConnChoice = '' | 'google' | 'demo';
@@ -190,11 +189,9 @@ function ConnectStep({ busy, setBusy, onNext, onBack }: { busy: boolean; setBusy
         [LS.products]: curProducts,
         [LS.fields]: curFields,
         [LS.orders]: demoOrdersList,
-        [LS.nextOrderNumber]: 1005,
       });
       await store.refreshConfig();
       await store.refreshOrders();
-      await setCounter(1005);
       toast('success', 'Demo mode ready', { message: 'A sample spreadsheet, 5 products and 4 sample orders were created locally.' });
       onNext();
     } catch (e) {

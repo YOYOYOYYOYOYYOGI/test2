@@ -131,11 +131,8 @@ export function defaultSettings(): Settings {
       connection: null,
     },
     order: {
-      prefix: 'ORD-',
-      startNumber: 1001,
-      padding: 0,
-      autoNumber: true,
-      manualNumbering: false,
+      // Manual order numbers only — the user types every order number. No
+      // auto generator, counter, prefix, padding or start-number settings.
       defaultPaymentStatus: 'Pending',
       defaultOrderStatus: 'New',
     },
@@ -186,7 +183,7 @@ export const DEMO_COLUMNS = [
   'Order Number', 'Customer Name', 'WhatsApp Number', 'Mobile Number', 'Address', 'City', 'State',
   'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Payment Amount', 'Order Status',
   'Night Cream Qty', 'Day Cream Qty', 'Face Serum Qty', 'Sunscreen Qty', 'Face Wash Qty',
-  'Delivery Charge', 'Total', 'Previous Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At',
+  'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At',
 ];
 
 export function demoOrders(): Order[] {
@@ -238,9 +235,14 @@ export function demoOrders(): Order[] {
   ];
 }
 
-/** Maps a row of the demo sheet back to an order (for the Orders page in demo mode). */
+/** Fixed demo sample-number set (ORD-1001 … ORD-1004). These are sample
+ *  fixture numbers for demo mode only — never used to generate real orders. */
+export const DEMO_ORDER_PREFIX = 'ORD-';
+export const DEMO_ORDER_START = 1001;
+
+/** Maps a row of the demo sheet back to its sample order (Orders page in demo mode). */
 export function demoOrderNumber(n: number): string {
-  return `${defaultSettings().order.prefix}${defaultSettings().order.startNumber + n - 1}`;
+  return `${DEMO_ORDER_PREFIX}${DEMO_ORDER_START + n - 1}`;
 }
 
 export const CURRENCY_SYMBOL = '₹';

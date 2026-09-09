@@ -46,7 +46,6 @@ export interface StoredState {
   products?: Product[];
   orders?: Order[];
   oldOrders?: OldOrderRecord[];
-  nextOrderNumber?: number;
   pendingOps?: unknown[];
   sheetHeaders?: Record<string, number>;
   lastRow?: number;
@@ -61,7 +60,6 @@ export interface KeyedState {
   products: Product[];
   orders: Order[];
   oldOrders: OldOrderRecord[];
-  nextOrderNumber: number;
   setupDone: boolean;
 }
 
@@ -90,7 +88,7 @@ export const storage = {
 
   async loadAll(): Promise<KeyedState> {
     const raw = (await this.area.get([
-      LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone,
+      LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.setupDone,
     ])) as Record<string, unknown>;
     const settings = deepMerge(defaultSettings(), (raw[LS.settings] as Settings) ?? {});
     return {
@@ -99,10 +97,6 @@ export const storage = {
       products: Array.isArray(raw[LS.products]) ? (raw[LS.products] as Product[]) : [],
       orders: Array.isArray(raw[LS.orders]) ? (raw[LS.orders] as Order[]) : [],
       oldOrders: Array.isArray(raw[LS.oldOrders]) ? (raw[LS.oldOrders] as OldOrderRecord[]) : [],
-      nextOrderNumber:
-        typeof raw[LS.nextOrderNumber] === 'number'
-          ? (raw[LS.nextOrderNumber] as number)
-          : defaultSettings().order.startNumber,
       setupDone: Boolean(raw[LS.setupDone]),
     };
   },

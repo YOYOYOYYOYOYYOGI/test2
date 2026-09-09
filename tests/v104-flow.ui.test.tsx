@@ -3,9 +3,9 @@
 // v1.0.4 end-to-end UI flows:
 //  A) Orders filters (Date + Method + Status) → Download Filtered Orders
 //     exports exactly the visible rows.
-//  B) New order: delivery-rule preview, Grand Total, duplicate matching
-//     dialog (Transaction ID), Continue Anyway, charge + txn persisted and
-//     written into the (demo) spreadsheet row.
+//  B) New order: manual Order Number entry, delivery-rule preview, Grand
+//     Total, duplicate matching dialog (Transaction ID), Continue Anyway,
+//     charge + txn persisted and written into the (demo) spreadsheet row.
 // ---------------------------------------------------------------------------
 import { describe, expect, it, beforeAll } from 'vitest';
 import { act } from 'react';
@@ -22,7 +22,7 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 beforeAll(async () => {
   DemoDriver.resetDemoGrid();
   await storage.area.clear();
-  await storage.remove([LS.orders, LS.nextOrderNumber, LS.pendingOps, LS.sheetHeaders, LS.lastRow, LS.settings, LS.fields, LS.products, LS.setupDone]);
+  await storage.remove([LS.orders, LS.pendingOps, LS.sheetHeaders, LS.lastRow, LS.settings, LS.fields, LS.products, LS.setupDone]);
 });
 
 async function mountApp() {
@@ -69,7 +69,7 @@ describe('v1.0.4: filters → filtered excel (Orders page)', () => {
       mkOrder('o3', 'ORD-1003', { createdAt: t0 - 3 * 86400_000 }), // 3 days ago
     ];
     const { settings, fields } = makeDefaultSettingsWithTemplate();
-    await storage.setMany({ [LS.settings]: settings, [LS.fields]: fields, [LS.products]: DEFAULT_DEMO_PRODUCTS, [LS.orders]: orders, [LS.nextOrderNumber]: 1004, [LS.setupDone]: true });
+    await storage.setMany({ [LS.settings]: settings, [LS.fields]: fields, [LS.products]: DEFAULT_DEMO_PRODUCTS, [LS.orders]: orders, [LS.setupDone]: true });
 
     const { el, root, navigate } = await mountApp();
     try {
@@ -120,7 +120,7 @@ describe('v1.0.4: delivery rules + duplicate matching on New Order', () => {
   it('previews Grand Total, warns on matching Transaction ID, saves charge + txn everywhere', async () => {
     DemoDriver.resetDemoGrid();
     await storage.area.clear();
-    await storage.remove([LS.orders, LS.nextOrderNumber, LS.pendingOps, LS.sheetHeaders, LS.lastRow, LS.settings, LS.fields, LS.products, LS.setupDone]);
+    await storage.remove([LS.orders, LS.pendingOps, LS.sheetHeaders, LS.lastRow, LS.settings, LS.fields, LS.products, LS.setupDone]);
 
     const { settings, fields } = makeDefaultSettingsWithTemplate();
     const txn = fields.find((f) => f.key === 'transactionId')!;
@@ -145,7 +145,7 @@ describe('v1.0.4: delivery rules + duplicate matching on New Order', () => {
     const existing = mkOrder('ord-1001', 'ORD-1001', { createdAt: Date.now() - 3600_000, transactionId: 'TXN12345' });
     await storage.setMany({
       [LS.settings]: settings, [LS.fields]: fields, [LS.products]: DEFAULT_DEMO_PRODUCTS,
-      [LS.orders]: [existing], [LS.nextOrderNumber]: 1002, [LS.setupDone]: true,
+      [LS.orders]: [existing], [LS.setupDone]: true,
     });
 
     const { el, root, navigate } = await mountApp();
@@ -196,6 +196,9 @@ describe('v1.0.4: delivery rules + duplicate matching on New Order', () => {
       await pickById(`f-${state.id}`, 'Gujarat');
       // txn id typed = same as ORD-1001's
       await setById(`f-${txn.id}`, 'TXN12345');
+      // order number is MANUAL — the field opens blank and the typed value is
+      // saved exactly as typed (no auto ORD-1002 is ever generated)
+      await setById('order-number', 'ORD-1002');
       // add a product: Night Cream ₹499 (subtotal < 600 → rule fires)
       await act(async () => {
         const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
@@ -238,8 +241,9 @@ describe('v1.0.4: delivery rules + duplicate matching on New Order', () => {
       expect(newest.transactionId).toBe('TXN12345');
       expect(newest.deliveryCharge).toBe(100);
       expect(newest.totalAmount).toBe(599);
-      // counter advanced past it
-      expect(stored.nextOrderNumber).toBeGreaterThanOrEqual(1003);
+      // nothing was auto-generated or stored about a counter
+      expect(stored.orders).toHaveLength(2);
+      expect(stored).not.toHaveProperty('nextOrderNumber');
 
       // the (demo) spreadsheet row contains Delivery Charge + Grand Total
       const driver = new DemoDriver();

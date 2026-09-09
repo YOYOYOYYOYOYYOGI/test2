@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 // ---------------------------------------------------------------------------
-// v1.0.6 tests — old customer/order import system:
+// v1.0.6 tests — old customer/order import system (updated for manual order
+//   numbers, v1.0.5+):
 //   phone normalization, CSV/.xlsx parsing + validation, record conversion &
-//   dedupe rules, separate storage, lookup index, New Order flow (autofill +
-//   composed order number + previousOrderNumber), old-data separation.
+//   dedupe rules, separate storage, lookup index (WhatsApp AND Mobile), New
+//   Order flow (autofill + full previous number as editable starting content
+//   + separate previousOrderNumber), old-data separation. Nothing is ever
+//   auto-generated — the user types the final order number.
 // ---------------------------------------------------------------------------
 import { describe, expect, it, beforeAll } from 'vitest';
 import { act } from 'react';
@@ -17,8 +20,8 @@ import {
   parseDelimitedText, scanHeaders, missingRequiredColumns, rowsToOldRecords, fileToRows, parseXlsxRows,
 } from '../src/lib/tableImport';
 import { xlsxBlob } from '../src/lib/xlsx';
-import { currentOrderToEntry, entryChainValue, findOldByWhatsapp, getOldOrders, indexOldOrders, mergeOldOrders, oldRecordToEntry } from '../src/services/oldOrders';
-import { nextCounter, normalizeCounter } from '../src/services/orders';
+import { createPreviousIndex, currentOrderToEntry, entryChainValue, findOldByWhatsapp, getOldOrders, indexOldOrders, mergeOldOrders, oldRecordToEntry } from '../src/services/oldOrders';
+import { previousSequenceOrderFor } from '../src/services/orders';
 import type { OldOrderRecord, Order, Product } from '../src/types';
 
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
@@ -174,7 +177,7 @@ describe('.xlsx parsing (real workbook bytes)', () => {
 describe('separate storage + lookup index', () => {
   beforeAll(async () => {
     await storage.area.clear();
-    await storage.remove([LS.oldOrders, LS.orders, LS.nextOrderNumber, LS.settings, LS.fields, LS.products]);
+    await storage.remove([LS.oldOrders, LS.orders, LS.settings, LS.fields, LS.products]);
   });
 
   const mk = (n: string, wa: string, name = 'P'): OldOrderRecord => ({
@@ -200,27 +203,59 @@ describe('separate storage + lookup index', () => {
     // formatting differences never create duplicates
     expect(findOldByWhatsapp(index, '083470-34843').length).toBe(2);
   });
+
+  it('the unified index searches by Mobile number too (phones match as TEXT)', () => {
+    const withMobile: OldOrderRecord[] = [
+      { id: 'm1', orderNumber: '7788', name: 'Trupti Joshi', address: 'X', whatsapp: '6358800465', mobile: '91234 56780', sourceRow: 2, importedAt: 2 },
+      { id: 'm2', orderNumber: '7799', name: 'Sameer Khan', address: 'Y', whatsapp: '9988776655', mobile: '99887 66550', sourceRow: 3, importedAt: 2 },
+    ];
+    const index = createPreviousIndex(withMobile, []);
+    // searching the MOBILE number finds the record (WhatsApp differs)
+    expect(index.find('91234 56780').map((e) => e.orderNumber)).toEqual(['7788']);
+    expect(index.find('+91 91234 56780').map((e) => e.orderNumber)).toEqual(['7788']);
+    expect(index.find('99887 66550').map((e) => e.orderNumber)).toEqual(['7799']);
+    // searching the WhatsApp number also still finds it
+    expect(index.find('6.358800465E9').map((e) => e.orderNumber)).toEqual(['7788']);
+    expect(index.find('9988776655').map((e) => e.orderNumber)).toEqual(['7799']);
+    // short / unknown numbers → nothing
+    expect(index.find('91234')).toEqual([]);
+    expect(index.find('0000000000')).toEqual([]);
+    // an unknown number (even written in scientific notation) → nothing
+    expect(index.find('9.000000001E9')).toEqual([]);
+  });
 });
 
-describe('auto number + old order suffix', () => {
-  it('composed numbers advance the counter; never reused; main sequence continues', async () => {
-    const s = defaultSettings(); // ORD- prefix, start 1001
-    await storage.setMany({ [LS.settings]: s, [LS.orders]: [], [LS.nextOrderNumber]: 1001 });
+describe('previous order chain + informational sequence reference (manual)', () => {
+  it('the picked order contributes its COMPLETE number — never a stripped base', () => {
+    // even when the first segment looks like an old auto counter, the whole
+    // order number is the starting content (14031 is never interpreted/consumed)
+    expect(entryChainValue(oldRecordToEntry({ id: 'r1', orderNumber: '14031-12772-10086-8491-7489', name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1 }), '14031')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(oldRecordToEntry({ id: 'r1', orderNumber: '14031-12772-10086-8491-7489', name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1 }))).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(oldRecordToEntry({ id: 'r2', orderNumber: '4673-4312-3542', name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1 }))).toBe('4673-4312-3542');
+    // current orders likewise
+    const current = currentOrderToEntry({ id: 'c1', orderNumber: '14031-12772-10086-8491-7489', customer: { name: '', whatsapp: '6358800465', mobile: '', address: '', city: '', state: '', pincode: '' }, products: {}, paymentStatus: 'Paid', paymentMethod: 'UPI', transactionId: '', paymentAmount: '', orderStatus: 'New', notes: '', totalAmount: 0, printed: 'Not Printed', printedAt: null, createdAt: 2, updatedAt: 2, customFields: {} });
+    expect(entryChainValue(current, '14032')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(current)).toBe('14031-12772-10086-8491-7489');
+  });
+
+  it('an empty order number contributes nothing (null)', () => {
+    expect(entryChainValue(oldRecordToEntry({ id: 'r0', orderNumber: '', name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1 }))).toBeNull();
+  });
+
+  it('previousSequenceOrderFor only looks at saved plain digit numbers — chains never qualify', async () => {
+    const s = defaultSettings();
     const ord = (n: string): Order => ({
       id: `x-${n}`, orderNumber: n,
       customer: { name: 'R', whatsapp: '8347034843', mobile: '', address: '', city: '', state: '', pincode: '' },
       products: {}, paymentStatus: 'Paid', paymentMethod: 'UPI', transactionId: '', paymentAmount: '',
       orderStatus: 'New', notes: '', totalAmount: 0, printed: 'Not Printed', printedAt: null,
-      createdAt: 1, updatedAt: 1, customFields: {}, previousOrderNumber: '4673-4312-3542',
+      createdAt: 1, updatedAt: 1, customFields: {},
     });
-    const one = ord('ORD-1001-4673-4312-3542');
-    await storage.setMany({ [LS.orders]: [one], [LS.nextOrderNumber]: 1001 });
-    // next base stays 1002 (composed order counted via its leading run)
-    expect(await nextCounter()).toBe(1002);
-    expect(normalizeCounter([one], s)).toBe(1002);
-    const plain = ord('ORD-1002');
-    await storage.setMany({ [LS.orders]: [one, plain], [LS.nextOrderNumber]: 1002 });
-    expect(await nextCounter()).toBe(1003);
+    await storage.setMany({ [LS.settings]: s, [LS.orders]: [ord('14995'), ord('14999'), ord('15000'), ord('14030-11694-9602-4776'), ord('ORD-1001')] });
+    const saved = (await storage.getState<Order[]>(LS.orders)) ?? [];
+    expect(previousSequenceOrderFor('15000', saved)).toBe('14999');
+    // a chain number is not a sequence candidate and never gets a reference
+    expect(previousSequenceOrderFor('14030-11694-9602-4776', saved)).toBe('');
   });
 });
 
@@ -247,11 +282,11 @@ async function mountApp() {
   return { el, root, navigate };
 }
 
-describe('New Order page: previous-orders lookup → autofill → composed number', () => {
+describe('New Order page: previous-orders lookup → autofill → manual lead number', () => {
   beforeAll(async () => {
     DemoDriver.resetDemoGrid();
     await storage.area.clear();
-    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone, LS.pendingOps]);
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.setupDone, LS.pendingOps]);
   });
 
   it('types whatsapp, sees ALL previous orders, picks one, saves with old order attached', { timeout: 90000 }, async () => {
@@ -270,7 +305,7 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
     const existing = mkOrder('ord-1001', 'ORD-1001', Date.now() - 86400_000);
     await storage.setMany({
       [LS.settings]: settings, [LS.fields]: fields, [LS.products]: products,
-      [LS.orders]: [existing], [LS.oldOrders]: recs, [LS.nextOrderNumber]: 1002, [LS.setupDone]: true,
+      [LS.orders]: [existing], [LS.oldOrders]: recs, [LS.setupDone]: true,
     });
 
     const { el, root, navigate } = await mountApp();
@@ -305,27 +340,41 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
       await setInput('9876543210', '9000000000');
       expect(text()).toContain('No previous order found.');
 
-      // back to the known number, pick the first old order
+      // back to the known number, pick the first old order (file order)
       await setInput('9876543210', '8347034843');
       const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
       expect(useButtons.length).toBe(2);
       await act(async () => { useButtons[0].click(); });
       await act(async () => { await tick(200); });
 
-      // autofilled customer info + previous-order chip
+      // autofilled customer info + selected-previous-order card
       const nameInput = Array.from(el.querySelectorAll('input')).find((i) => i.getAttribute('placeholder') === 'Customer name') as HTMLInputElement | null;
       expect(nameInput?.value).toBe('Patel Poonam');
       const addrInput = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
       expect(addrInput?.value).toContain('A-601, Yogi Platina');
-      expect(text()).toContain('Previous Order:');
+      expect(text()).toContain('Selected Previous Order');
       expect(text()).toContain('4673-4312-3542');
       // City/State autofilled from extra columns when the fields exist
       const cityInput = Array.from(el.querySelectorAll('input')).find((i) => i.getAttribute('placeholder') === 'City') as HTMLInputElement | null;
       expect(cityInput?.value ?? '').toBe('Gandhinagar');
 
-      // auto order number = counter 1002? (existing ORD-1001 → counter 1002) + old suffix
+      // the FULL previous number is loaded as editable starting content —
+      // nothing was auto-composed, no counter number exists
       const numInput = el.querySelector('#order-number') as HTMLInputElement | null;
-      expect(numInput?.value).toBe('ORD-1002-4673-4312-3542');
+      expect(numInput?.value).toBe('4673-4312-3542');
+
+      // the user types the new lead segment by hand → 4673-4312-3542 is NOT
+      // re-appended (typing the full final value simulates the manual edit)
+      const numSetter = async (value: string) => {
+        await act(async () => {
+          const proto = Object.getPrototypeOf(numInput!);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          setter?.call(numInput, value);
+          numInput!.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await act(async () => { await tick(80); });
+      };
+      await numSetter('ORD-1002-4673-4312-3542');
 
       // add a product & save
       await act(async () => {
@@ -349,8 +398,8 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
       expect(newest.customer.whatsapp).toBe('8347034843');
       expect(newest.customer.address).toContain('Yogi Platina');
       expect(newest.customer.state).toBe('Gujarat');
-      // main counter continues normally
-      expect(stored.nextOrderNumber).toBe(1003);
+      // no counter state exists anymore
+      expect(stored).not.toHaveProperty('nextOrderNumber');
       // old data untouched & separate (still 3 records, still not in orders)
       expect((await storage.getState<OldOrderRecord[]>(LS.oldOrders))?.length).toBe(3);
       expect(stored.orders.length).toBe(2); // only the new one added
@@ -379,8 +428,10 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
       await act(async () => { buttons[0].click(); });
       await act(async () => { await tick(250); });
       const numInput2 = el.querySelector('#order-number') as HTMLInputElement | null;
-      expect(numInput2?.value).toBe('ORD-1003-ORD-1002-4673-4312-3542');
-      expect(chainText()).toContain('Previous Order:');
+      // the complete previous order number is the starting content (field is
+      // focused with the cursor at the start — the user adds ORD-1003-)
+      expect(numInput2?.value).toBe('ORD-1002-4673-4312-3542');
+      expect(chainText()).toContain('Selected Previous Order');
       // customer info editable: change the address before saving
       const addrInput2 = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
       expect(addrInput2?.value).toContain('Yogi Platina');
@@ -391,6 +442,19 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
         addrInput2!.dispatchEvent(new Event('input', { bubbles: true }));
       });
       await act(async () => { await tick(80); });
+      // simulate the user typing the new lead segment at the cursor start
+      const numSetter2 = async (value: string) => {
+        const input2 = el.querySelector('#order-number') as HTMLInputElement | null;
+        expect(input2).toBeTruthy();
+        await act(async () => {
+          const proto = Object.getPrototypeOf(input2!);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          setter?.call(input2, value);
+          input2!.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await act(async () => { await tick(80); });
+      };
+      await numSetter2('ORD-1003-ORD-1002-4673-4312-3542');
       await act(async () => {
         const save = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Save Order'));
         expect(save).toBeTruthy();
@@ -403,10 +467,12 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
       expect(chainOrder.orderNumber).toBe('ORD-1003-ORD-1002-4673-4312-3542');
       expect(chainOrder.previousOrderNumber).toBe('ORD-1002-4673-4312-3542'); // immediate parent, not the original
       expect(chainOrder.customer.address).toBe('NEW ADDRESS, New City'); // edited data saved
+      // the old chain appears exactly once — never appended again
+      expect(chainOrder.orderNumber.split('4673-4312-3542')).toHaveLength(2);
       // original order untouched (still old address)
       const firstOrder = stored2.orders.find((o) => o.orderNumber === 'ORD-1002-4673-4312-3542')!;
       expect(firstOrder.customer.address).toContain('Yogi Platina');
-      expect(stored2.nextOrderNumber).toBe(1004); // base counter keeps counting
+      expect(stored2).not.toHaveProperty('nextOrderNumber');
       expect((await storage.getState<OldOrderRecord[]>(LS.oldOrders))?.length).toBe(3); // imported history never modified
     } finally {
       root.unmount();
@@ -418,7 +484,7 @@ describe('New Order page: previous-orders lookup → autofill → composed numbe
 describe('Settings → Old Data import UI', () => {
   it('uploads a CSV file and stores the records', { timeout: 90000 }, async () => {
     await storage.area.clear();
-    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone]);
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.setupDone]);
     const { settings, fields } = makeDefaultSettingsWithTemplate();
     await storage.setMany({ [LS.settings]: settings, [LS.fields]: fields, [LS.orders]: [], [LS.setupDone]: true });
 
@@ -530,20 +596,16 @@ describe('Mobile Number stays TEXT (separate from WhatsApp)', () => {
   });
 });
 
-describe('chain level of a picked order (TEST 1 / TEST 2 semantics)', () => {
+describe('a picked order always contributes its COMPLETE number', () => {
   const rec = (n: string): OldOrderRecord => ({
     id: `r-${n}`, orderNumber: n, name: '', address: '', whatsapp: '6358800465', sourceRow: 2, importedAt: 1,
   });
 
-  it('imported record whose own base equals the current auto base contributes its previous portion', () => {
+  it('imported history: the full number is the starting content — no base splitting', () => {
     const entry = oldRecordToEntry(rec('14031-12772-10086-8491-7489'));
-    expect(entryChainValue(entry, '14031')).toBe('12772-10086-8491-7489');
-    expect(entryChainValue(entry, 'ORD-14031')).toBe('12772-10086-8491-7489');
-    expect(entryChainValue(entry, 'ORD-00014031')).toBe('12772-10086-8491-7489');
-  });
-
-  it('otherwise the complete order number is the immediate parent (chain preserved)', () => {
-    expect(entryChainValue(oldRecordToEntry(rec('14031-12772-10086-8491-7489')), '14032')).toBe('14031-12772-10086-8491-7489');
+    // chain numbers are never interpreted as their leading segment
+    expect(entryChainValue(entry, '14031')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(entry)).toBe('14031-12772-10086-8491-7489');
     expect(entryChainValue(oldRecordToEntry(rec('4673-4312-3542')), 'ORD-1002')).toBe('4673-4312-3542');
     expect(entryChainValue(oldRecordToEntry(rec('3542')), '14000')).toBe('3542');
   });
@@ -551,33 +613,32 @@ describe('chain level of a picked order (TEST 1 / TEST 2 semantics)', () => {
   it('current orders always contribute their complete number', () => {
     const current = currentOrderToEntry(mkOrder('c1', '14031-12772-10086-8491-7489', 2));
     expect(entryChainValue(current, '14032')).toBe('14031-12772-10086-8491-7489');
-    expect(entryChainValue(current, '14031')).toBe('14031-12772-10086-8491-7489');
+    expect(entryChainValue(current)).toBe('14031-12772-10086-8491-7489');
   });
 
-  it('single-segment imported record equal to the base → no previous portion', () => {
-    expect(entryChainValue(oldRecordToEntry(rec('14031')), '14031')).toBeNull();
+  it('empty numbers contribute nothing (no chain invented)', () => {
+    expect(entryChainValue(oldRecordToEntry(rec('')), '14031')).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// UI E2E — chained historical order (14031-12772-10086-8491-7489):
-//   search → row shows mobile + reusable previous → use → autofill (mobile
-//   included) → previous order editable → edited mobile/address saved →
-//   chain continues from the new order with the next base (TEST 1–4).
+// UI E2E — chained historical order (14031-12772-10086-8491-7489), MANUAL
+//   numbering: search by WhatsApp → pick → the FULL chain loads as editable
+//   starting content (nothing auto-composed) → [Remove] empties the field →
+//   the user types the new lead segment (15000-14031-…), then next time
+//   15001-15000-14031-… — the old chain always appears exactly once.
 // ---------------------------------------------------------------------------
 describe('New Order chain from a chained historical order + Mobile Number', () => {
   beforeAll(async () => {
     DemoDriver.resetDemoGrid();
     await storage.area.clear();
-    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.nextOrderNumber, LS.setupDone, LS.pendingOps]);
+    await storage.remove([LS.settings, LS.fields, LS.products, LS.orders, LS.oldOrders, LS.setupDone, LS.pendingOps]);
   });
 
-  it('selects 14031-12772-10086-8491-7489 → 14031-… then 14032-14031-… (prefixless counters)', { timeout: 120000 }, async () => {
+  it('selects 14031-12772-10086-8491-7489 → user types 15000- lead → next time 15001-15000-… (chains never duplicated)', { timeout: 120000 }, async () => {
     const { settings, fields } = makeDefaultSettingsWithTemplate();
     settings.demoMode = true;
     settings.spreadsheet = { provider: 'demo', connected: false, connection: null };
-    settings.order.prefix = '';
-    settings.order.startNumber = 14031;
     const products: Product[] = [
       { id: 'p1', name: 'Night Cream', sku: '', price: 499, active: true, createdAt: 1 },
     ];
@@ -590,7 +651,7 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
     ];
     await storage.setMany({
       [LS.settings]: settings, [LS.fields]: fields, [LS.products]: products,
-      [LS.orders]: [], [LS.oldOrders]: recs, [LS.nextOrderNumber]: 14031, [LS.setupDone]: true,
+      [LS.orders]: [], [LS.oldOrders]: recs, [LS.setupDone]: true,
     });
 
     const { el, root, navigate } = await mountApp();
@@ -610,56 +671,67 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
         await act(async () => { await tick(250); });
       };
       const phoneInputs = () => inputs().filter((i) => i.getAttribute('placeholder') === '9876543210');
+      const numSetter = async (value: string) => {
+        const input = el.querySelector('#order-number') as HTMLInputElement | null;
+        expect(input).toBeTruthy();
+        await setValue(input!, value);
+      };
 
-      // --- TEST 3: search shows the order with name, address, mobile ---
+      // --- search by MOBILE number works too (WhatsApp left blank) ---
+      await act(async () => { await setValue(phoneInputs()[1], '91234 56780'); });
+      await act(async () => { await tick(600); });
+      expect(text()).toContain('Previous Orders Found');
+      expect(text()).toContain('14031-12772-10086-8491-7489');
+      await act(async () => { await setValue(phoneInputs()[1], ''); });
+      await act(async () => { await tick(600); });
+      expect(text()).not.toContain('Previous Orders Found');
+
+      // search shows the full chain order with name, address AND mobile
       await act(async () => { await setValue(phoneInputs()[0], '6358800465'); });
       await act(async () => { await tick(600); });
       expect(text()).toContain('Previous Orders Found');
       expect(text()).toContain('14031-12772-10086-8491-7489');
       expect(text()).toContain('Trupti Joshi');
       expect(text()).toContain('Mobile: 91234 56780');
-      expect(text()).toContain('Reusable Previous Order: 12772-10086-8491-7489');
+      // the chain is never split into a "reusable previous order" base
+      expect(text()).not.toContain('Reusable Previous Order');
 
-      // --- TEST 1: pick it → previous = 12772-…, auto number reconstructs ---
-      const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
-      expect(useButtons.length).toBe(1);
-      await act(async () => { useButtons[0].click(); });
+      // pick it → the FULL chain becomes the editable starting content
+      const useButtons = () => Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      expect(useButtons().length).toBe(1);
+      await act(async () => { useButtons()[0].click(); });
       await act(async () => { await tick(300); });
 
       const numInput = () => el.querySelector('#order-number') as HTMLInputElement | null;
-      const prevInput = () => el.querySelector('#previous-order-number') as HTMLInputElement | null;
       expect(numInput()?.value).toBe('14031-12772-10086-8491-7489');
-      expect(prevInput()?.value).toBe('12772-10086-8491-7489');
+      expect(text()).toContain('Selected Previous Order');
       const nameInput = inputs().find((i) => i.getAttribute('placeholder') === 'Customer name');
       expect(nameInput?.value).toBe('Trupti Joshi');
       expect(phoneInputs()[1]?.value).toBe('91234 56780'); // separate Mobile field
       const addrInput = Array.from(el.querySelectorAll('textarea')).find((i) => i.getAttribute('placeholder') === 'House no., street, landmark…') as HTMLTextAreaElement | null;
       expect(addrInput?.value).toContain('A-204, Plot No.');
 
-      // --- P8: the previous-order value is user-editable ---
-      await setValue(prevInput()!, '4673-4312-3542');
-      expect(numInput()?.value).toBe('14031-4673-4312-3542');
-      // and it can be removed → only the auto base remains
+      // --- [Remove] clears the previous-order relation AND empties the field
       await act(async () => {
-        const rm = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('✕ remove'));
+        const rm = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === 'Remove');
         expect(rm).toBeTruthy();
         rm!.click();
       });
       await act(async () => { await tick(200); });
-      expect(numInput()?.value).toBe('14031');
-      expect(prevInput()).toBeNull();
+      expect(text()).not.toContain('Selected Previous Order');
+      expect(numInput()?.value).toBe(''); // manual entry — nothing auto remains
 
-      // pick the order again, then edit mobile + address before saving (TEST 4)
-      await act(async () => {
-        const btn = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Use This Order'));
-        expect(btn).toBeTruthy();
-        btn!.click();
-      });
+      // pick the order again, then edit mobile + address before saving
+      await act(async () => { useButtons()[0].click(); });
       await act(async () => { await tick(250); });
-      expect(prevInput()?.value).toBe('12772-10086-8491-7489');
+      expect(numInput()?.value).toBe('14031-12772-10086-8491-7489');
+      expect(text()).toContain('Selected Previous Order');
       await setValue(phoneInputs()[1], '9999999999');
       await setValue(addrInput!, 'NEW ADDRESS, New City');
 
+      // the user types their new lead segment manually (15000-…) — the old
+      // chain stays once, exactly as selected
+      await numSetter('15000-14031-12772-10086-8491-7489');
       await act(async () => {
         const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
         expect(pill).toBeTruthy();
@@ -675,8 +747,8 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
 
       let stored = await storage.loadAll();
       let newest = [...stored.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
-      expect(newest.orderNumber).toBe('14031-12772-10086-8491-7489');
-      expect(newest.previousOrderNumber).toBe('12772-10086-8491-7489');
+      expect(newest.orderNumber).toBe('15000-14031-12772-10086-8491-7489');
+      expect(newest.previousOrderNumber).toBe('14031-12772-10086-8491-7489');
       expect(newest.customer.name).toBe('Trupti Joshi');
       expect(newest.customer.mobile).toBe('9999999999'); // edited mobile saved
       expect(newest.customer.address).toBe('NEW ADDRESS, New City');
@@ -686,9 +758,10 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
       expect(old).toHaveLength(1);
       expect(old[0].mobile).toBe('91234 56780');
       expect(old[0].address).toContain('A-204, Plot No.');
-      expect(stored.nextOrderNumber).toBe(14032); // counter continues (TEST 1 semantics: base 14031 was re-issued)
+      expect(stored).not.toHaveProperty('nextOrderNumber');
 
-      // --- TEST 2: next order — pick the newly created order → full parent ---
+      // --- next order — pick the newly created order → full parent, user
+      // types 15001- lead; chain never doubled
       await act(async () => { navigate('orders'); });
       await act(async () => { await tick(300); });
       await act(async () => { navigate('new'); });
@@ -697,13 +770,13 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
       await act(async () => { await tick(600); });
       expect(text()).toContain('Previous Orders Found');
       expect(text()).toContain('recent order'); // current order is listed too
-      const useAll = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
-      expect(useAll.length).toBe(2); // current order + imported history
-      // newest first → the current 14031-… order is on top
-      await act(async () => { useAll[0].click(); });
+      expect(useButtons().length).toBe(2); // current order + imported history
+      // newest first → the current 15000-… order is on top
+      await act(async () => { useButtons()[0].click(); });
       await act(async () => { await tick(300); });
-      expect(prevInput()?.value).toBe('14031-12772-10086-8491-7489'); // complete parent
-      expect(numInput()?.value).toBe('14032-14031-12772-10086-8491-7489');
+      expect(numInput()?.value).toBe('15000-14031-12772-10086-8491-7489'); // complete parent as starting content
+      expect(text()).toContain('Selected Previous Order');
+      await numSetter('15001-15000-14031-12772-10086-8491-7489');
       await act(async () => {
         const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));
         expect(pill).toBeTruthy();
@@ -719,9 +792,11 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
 
       stored = await storage.loadAll();
       newest = [...stored.orders].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
-      expect(newest.orderNumber).toBe('14032-14031-12772-10086-8491-7489');
-      expect(newest.previousOrderNumber).toBe('14031-12772-10086-8491-7489');
-      expect(stored.nextOrderNumber).toBe(14033);
+      expect(newest.orderNumber).toBe('15001-15000-14031-12772-10086-8491-7489');
+      expect(newest.previousOrderNumber).toBe('15000-14031-12772-10086-8491-7489');
+      // 14031-… still appears exactly once (never re-appended after 15000-…)
+      expect(newest.orderNumber.split('14031-12772-10086-8491-7489')).toHaveLength(2);
+      expect(stored).not.toHaveProperty('nextOrderNumber');
       expect(((await storage.getState<OldOrderRecord[]>(LS.oldOrders)) ?? []).length).toBe(1);
     } finally {
       root.unmount();

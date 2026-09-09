@@ -2,8 +2,9 @@
 // ---------------------------------------------------------------------------
 // v1.0.8 — Full Backup & Restore (Settings → Backup & Restore):
 //   - one versioned JSON file (backupVersion: 1) with orders, historical old
-//     data, products, fields, delivery/matching rules, order-number state and
-//     all settings (incl. label design + logo data URL)
+//     data, products, fields, delivery/matching rules and
+//     all settings (incl. label design + logo data URL) — order numbers are
+//     manual and travel inside each order row
 //   - export file name order-manager-backup-YYYY-MM-DD.json
 //   - validation never crashes; invalid files get the exact user message
 //   - restore happens only after the explicit confirmation, replaces the
@@ -33,8 +34,6 @@ function seededState() {
   const { settings, fields } = makeDefaultSettingsWithTemplate();
   settings.business.name = 'Backup Test Store';
   settings.business.logoDataUrl = 'data:image/png;base64,AAAA'; // persisted logo
-  settings.order.prefix = 'B-';
-  settings.order.startNumber = 14000;
   settings.labels.footerText = 'Restored footer';
   settings.labels.fontSize = 14;
   settings.labels.showBarcode = true;
@@ -48,13 +47,13 @@ function seededState() {
     { id: 'p2', name: 'Face Serum', sku: '', price: 699, active: false, createdAt: 2 },
   ];
   const orders: Order[] = [
-    mkOrder('o1', 'B-14001', 1, { previousOrderNumber: '4673-4312-3542', deliveryCharge: 60, notes: 'backup me', paymentStatus: 'COD', customFields: { note: 'x' } }),
-    mkOrder('o2', 'B-14002-B-14001', 2, { previousOrderNumber: 'B-14001' }),
+    mkOrder('o1', 'B-14001', 1, { previousOrderNumber: '4673-4312-3542', previousSequenceOrderNumber: '4672', deliveryCharge: 60, notes: 'backup me', paymentStatus: 'COD', customFields: { note: 'x' } }),
+    mkOrder('o2', 'B-14002-B-14001', 2, { previousOrderNumber: 'B-14001', previousSequenceOrderNumber: 'B-14000' }),
   ];
   const oldOrders: OldOrderRecord[] = [
     { id: 'oa', orderNumber: '14031-12772-10086-8491-7489', name: 'Trupti Joshi', address: 'A-204 Aarna Residency', whatsapp: '6358800465', mobile: '91234 56780', sourceRow: 2, importedAt: 1 },
   ];
-  return { settings, fields, products, orders, oldOrders, nextOrderNumber: 14003, setupDone: true };
+  return { settings, fields, products, orders, oldOrders, setupDone: true };
 }
 
 async function seedAll() {
@@ -63,7 +62,7 @@ async function seedAll() {
   await storage.setMany({
     [LS.settings]: s.settings, [LS.fields]: s.fields, [LS.products]: s.products,
     [LS.orders]: s.orders, [LS.oldOrders]: s.oldOrders,
-    [LS.nextOrderNumber]: s.nextOrderNumber, [LS.setupDone]: true,
+    [LS.setupDone]: true,
   });
   return s;
 }
@@ -87,8 +86,8 @@ describe('backup service', () => {
     expect(parsed.data.oldOrders).toHaveLength(1);
     expect(parsed.data.products).toHaveLength(2);
     expect(parsed.data.fields.length).toBeGreaterThan(5);
-    expect(parsed.data.nextOrderNumber).toBe(14003);
     expect(parsed.data.setupDone).toBe(true);
+    expect(parsed.data).not.toHaveProperty('nextOrderNumber'); // auto counters are gone
   });
 
   it('rejects invalid files with the exact friendly message — never crashes', () => {
@@ -110,6 +109,7 @@ describe('backup service', () => {
     if (!res.ok) return;
     expect(res.file.data.orders[0].orderNumber).toBe('B-14001');
     expect(res.file.data.orders[0].previousOrderNumber).toBe('4673-4312-3542');
+    expect(res.file.data.orders[0].previousSequenceOrderNumber).toBe('4672');
     expect(res.file.data.orders[0].customer.mobile).toBe('9123456780');
     expect(res.file.data.oldOrders[0].mobile).toBe('91234 56780');
 
@@ -118,7 +118,7 @@ describe('backup service', () => {
     await storage.setMany({
       [LS.settings]: { ...s.settings, business: { ...s.settings.business, name: 'Other Store' } },
       [LS.fields]: [], [LS.products]: [], [LS.orders]: [], [LS.oldOrders]: [],
-      [LS.nextOrderNumber]: 1, [LS.setupDone]: false, [LS.pendingOps]: [{ fake: 'op' }],
+      [LS.setupDone]: false, [LS.pendingOps]: [{ fake: 'op' }],
     });
     // a live Google connection on B is kept (device-specific)
     await storage.set(LS.settings, {
@@ -139,6 +139,7 @@ describe('backup service', () => {
     expect(b.settings.matching.rules[0].enabled).toBe(true);
     expect(b.orders).toHaveLength(2);
     expect(b.orders.find((o) => o.id === 'o1')?.previousOrderNumber).toBe('4673-4312-3542');
+    expect(b.orders.find((o) => o.id === 'o1')?.previousSequenceOrderNumber).toBe('4672');
     expect(b.orders.find((o) => o.id === 'o1')?.customer.mobile).toBe('9123456780');
     expect(b.orders.find((o) => o.id === 'o2')?.orderNumber).toBe('B-14002-B-14001');
     expect(b.oldOrders).toHaveLength(1);
@@ -147,7 +148,7 @@ describe('backup service', () => {
     expect(b.products).toHaveLength(2);
     expect(b.products[1].active).toBe(false);
     expect(b.fields.length).toBeGreaterThan(5);
-    expect(b.nextOrderNumber).toBe(14003);
+    expect(b).not.toHaveProperty('nextOrderNumber');
     expect(b.setupDone).toBe(true);
     // live spreadsheet connection kept on B, transient caches cleared
     const live = await storage.getState<typeof b.settings>(LS.settings);
@@ -230,12 +231,11 @@ describe('Settings → Backup & Restore UI', () => {
       const b = await storage.loadAll();
       expect(b.orders).toHaveLength(2);
       expect(b.orders.find((o) => o.id === 'o1')?.orderNumber).toBe('B-14001');
+      expect(b.orders.find((o) => o.id === 'o1')?.previousOrderNumber).toBe('4673-4312-3542');
       expect(b.oldOrders).toHaveLength(1);
-      expect(b.nextOrderNumber).toBe(14003);
       expect(b.settings.business.name).toBe('Backup Test Store');
       // UI store was refreshed (not only storage)
       expect(useAppStore.getState().orders.length).toBe(2);
-      expect(useAppStore.getState().counter).toBe(14003);
 
       // label design keeps working after the restore (TEST 10): the Label
       // Design tab opens and its live preview uses the restored settings

@@ -370,28 +370,23 @@ function OrderTab() {
 
   const save = async () => {
     await store.persist({ settings: { ...settings, order: draft } });
-    toast('success', 'Order number settings saved');
+    toast('success', 'Order settings saved');
   };
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <Card title="Automatic order numbers" actions={<Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>Save</Button>}>
+      <Card title="Order numbers" actions={<Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>Save</Button>}>
         <div className="card-pad col" style={{ gap: 12 }}>
-          <Toggle checked={draft.autoNumber} onChange={(v) => setDraft({ ...draft, autoNumber: v })} label={<><b>Automatic numbering</b> <span className="hint">— orders get the next number automatically (e.g. ORD-1001, ORD-1002…)</span></>} />
+          <div style={{ background: 'var(--primary-soft)', borderRadius: 9, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
+            <b>Manual order numbers.</b> The extension never generates an order number, counter or prefix — on the New Order screen you type the
+            complete order number yourself (e.g. <span className="mono">15000</span> or <span className="mono">15000-14030-11694-9602-4776</span>).
+            Selecting a customer's previous order simply loads its full number into the editable field so you can change the beginning.
+          </div>
           <div className="form-grid">
-            <Field label="Prefix" hint="e.g. ORD-"><Input value={draft.prefix} onChange={(e) => setDraft({ ...draft, prefix: e.target.value })} placeholder="ORD-" /></Field>
-            <Field label="Starting number" hint="First order gets this number"><Input type="number" value={draft.startNumber} onChange={(e) => setDraft({ ...draft, startNumber: parseInt(e.target.value || '1', 10) })} /></Field>
-            <Field label="Zero padding (0 = none)" hint="4 → ORD-1001 stays; 6 → ORD-001001"><Input type="number" min={0} max={8} value={draft.padding} onChange={(e) => setDraft({ ...draft, padding: parseInt(e.target.value || '0', 10) })} /></Field>
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <Toggle checked={draft.manualNumbering} onChange={(v) => setDraft({ ...draft, manualNumbering: v, autoNumber: !v ? draft.autoNumber : true })}
-              label={<><b>Allow manual order numbers</b> <span className="hint">— the New Order screen lets you type the order number instead of using the automatic one</span></>} />
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }} className="form-grid">
             <Field label="Default payment status"><Select value={draft.defaultPaymentStatus} onChange={(e) => setDraft({ ...draft, defaultPaymentStatus: e.target.value as Settings['order']['defaultPaymentStatus'] })}>{PAYMENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
             <Field label="Default order status"><Select value={draft.defaultOrderStatus} onChange={(e) => setDraft({ ...draft, defaultOrderStatus: e.target.value as Settings['order']['defaultOrderStatus'] })}>{ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
           </div>
-          <p className="hint">Duplicates are blocked: saving an order number that already exists asks what you want to do. The counter always skips numbers that are already in use.</p>
+          <p className="hint">Duplicates are blocked: an order number that already exists can't be saved twice. When you type a number such as 15000, the screen shows the latest existing order before it as “Previous Sequence Order” — a read-only reference that is never added to your order number.</p>
         </div>
       </Card>
     </div>
@@ -710,10 +705,10 @@ function BackupTab({ go }: { go: (r: string) => void }) {
     if (format === 'json') {
       downloadFile(`orders-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 2), 'application/json');
     } else {
-      const headers = ['Order Number', 'Previous Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
+      const headers = ['Order Number', 'Previous Order Number', 'Previous Sequence Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
       const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
       const lines = [headers.join(','), ...all.map((o) => [
-        o.orderNumber, o.previousOrderNumber ?? '', o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
+        o.orderNumber, o.previousOrderNumber ?? '', o.previousSequenceOrderNumber ?? '', o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
         Object.values(o.products).map((pr) => `${pr.productName} x${pr.quantity}`).join(' | '),
         o.paymentStatus, o.paymentMethod, o.transactionId, o.orderStatus, o.totalAmount, o.printed, formatDate(o.createdAt, true),
       ].map(esc).join(','))];
@@ -740,7 +735,6 @@ function BackupTab({ go }: { go: (r: string) => void }) {
         fields: (Array.isArray(data.fields) ? data.fields : []) as import('../../types').OrderField[],
         products: (Array.isArray(data.products) ? data.products : []) as import('../../types').Product[],
       });
-      await storage.set(LS.nextOrderNumber, settings.order.startNumber + 1);
       toast('success', 'Configuration imported', { message: 'Spreadsheet connection was kept. Review settings before saving the next order.' });
     } catch (e) {
       toast('error', 'Import failed', { message: e instanceof Error ? e.message : 'Invalid file.' });
@@ -774,9 +768,9 @@ function BackupTab({ go }: { go: (r: string) => void }) {
       <Card title="Full Backup & Restore">
         <div className="card-pad col" style={{ gap: 10 }}>
           <p className="hint" style={{ margin: 0, lineHeight: 1.6 }}>
-            One file with <b>everything</b>: orders (order numbers, previous order numbers, customer details incl. WhatsApp &amp; Mobile, custom fields,
+            One file with <b>everything</b>: orders (order numbers, previous order numbers, previous sequence references, customer details incl. WhatsApp &amp; Mobile, custom fields,
             payment, delivery, status) · imported historical old data · products · custom fields · delivery rules · matching rules ·
-            order-number settings (prefix, starting number, current counter) · label design (size, logo, fonts, barcode/QR, footer) · general settings.
+            label design (size, logo, fonts, barcode/QR, footer) · general settings.
             Export on this computer → restore on another → all data and settings are back.
           </p>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -803,7 +797,7 @@ function BackupTab({ go }: { go: (r: string) => void }) {
               <div className="hint" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
                 Contains <b>{pending.file.data.orders.length}</b> orders · <b>{pending.file.data.oldOrders.length}</b> historical record
                 {pending.file.data.oldOrders.length === 1 ? '' : 's'} · <b>{pending.file.data.products.length}</b> products ·{' '}
-                <b>{pending.file.data.fields.length}</b> fields · next order number <span className="mono">{pending.file.data.nextOrderNumber}</span>.
+                <b>{pending.file.data.fields.length}</b> fields · manual order numbers.
                 Restoring <b>replaces the current extension data</b> with this backup. The Google Sheets connection stays as it is (reconnect on another computer).
               </div>
               <div className="row" style={{ gap: 8, marginTop: 8 }}>

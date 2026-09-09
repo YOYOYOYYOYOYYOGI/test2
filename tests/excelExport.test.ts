@@ -45,7 +45,7 @@ function order(over: Partial<Order> & { id: string; orderNumber: string }): Orde
 describe('dynamic Excel columns', () => {
   it('builds field columns (in field order), Qty columns, then Delivery Charge + Total', () => {
     const headers = excelHeaders(ctx());
-    expect(headers).toEqual(['Order Number', 'Customer Name', 'WhatsApp Number', 'Address', 'Pincode', 'Night Cream Qty', 'Face Serum Qty', 'Day Cream Qty', 'Delivery Charge', 'Total', 'Previous Order Number']);
+    expect(headers).toEqual(['Order Number', 'Customer Name', 'WhatsApp Number', 'Address', 'Pincode', 'Night Cream Qty', 'Face Serum Qty', 'Day Cream Qty', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number']);
   });
 
   it('respects sheet header mappings and per-field columnHeader overrides', () => {
@@ -57,7 +57,7 @@ describe('dynamic Excel columns', () => {
       { ...field('f-ord', 'Order Number', 'orderNumber', 0), columnHeader: 'Order No.' },
       field('f-cust', 'Customer Name', 'customerName', 1),
     ], products: [] });
-    expect(excelHeaders(c)).toEqual(['Order No.', 'Client Name', 'Delivery Charge', 'Total', 'Previous Order Number']);
+    expect(excelHeaders(c)).toEqual(['Order No.', 'Client Name', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number']);
   });
 
   it('uses only included fields and falls back to active products when products.included is empty', () => {
@@ -68,7 +68,7 @@ describe('dynamic Excel columns', () => {
       { id: 'p1', name: 'Alpha', sku: '', price: 1, active: true, createdAt: 1 },
       { id: 'p2', name: 'Beta', sku: '', price: 2, active: false, createdAt: 2 },
     ] });
-    expect(excelHeaders(c)).toEqual(['Customer Name', 'Alpha Qty', 'Delivery Charge', 'Total', 'Previous Order Number']);
+    expect(excelHeaders(c)).toEqual(['Customer Name', 'Alpha Qty', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number']);
   });
 
   it('never emits duplicate columns even when names collide', () => {
@@ -78,7 +78,7 @@ describe('dynamic Excel columns', () => {
     const c = ctx({ settings, products: [
       { id: 'p1', name: 'Customer Name', sku: '', price: 1, active: true, createdAt: 1 },
     ] });
-    expect(excelHeaders(c)).toEqual(['Customer Name', 'Customer Name Qty', 'Delivery Charge', 'Total', 'Previous Order Number']); // product col suffix keeps it unique
+    expect(excelHeaders(c)).toEqual(['Customer Name', 'Customer Name Qty', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number']); // product col suffix keeps it unique
   });
 
   it('reflects new custom fields and product list changes automatically', () => {
@@ -97,11 +97,13 @@ describe('dynamic Excel columns', () => {
     expect(headers).toContain('Email');
     expect(headers).toContain('Hair Mask Qty');
     // product qty always right after all fields, in catalog order;
-    // Delivery Charge + Total trail every export
-    expect(headers.indexOf('Hair Mask Qty')).toBe(headers.length - 4);
-    expect(headers[headers.length - 3]).toBe('Delivery Charge');
-    expect(headers[headers.length - 2]).toBe('Total');
-    expect(headers[headers.length - 1]).toBe('Previous Order Number');
+    // Delivery Charge + Total trail every export, then the two previous-
+    // order reference columns (both plain text)
+    expect(headers.indexOf('Hair Mask Qty')).toBe(headers.length - 5);
+    expect(headers[headers.length - 4]).toBe('Delivery Charge');
+    expect(headers[headers.length - 3]).toBe('Total');
+    expect(headers[headers.length - 2]).toBe('Previous Order Number');
+    expect(headers[headers.length - 1]).toBe('Previous Sequence Order Number');
   });
 });
 

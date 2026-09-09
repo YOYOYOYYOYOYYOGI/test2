@@ -8,7 +8,6 @@ import { LS, storage } from './storage';
 import { engineForSettings } from './sync';
 import { SpreadsheetEngine, SpreadsheetError, friendlySheetsError } from './spreadsheet/engine';
 import { GoogleAuthError } from './google/oauth';
-import { defaultSettings } from '../lib/constants';
 
 export interface OrderInput {
   orderNumber: string;
@@ -25,6 +24,9 @@ export interface OrderInput {
   deliveryCharge?: number;
   /** old order this new order was created from (shown separately) */
   previousOrderNumber?: string;
+  /** informational sequence reference (read-only — never merged into the
+   *  order number and never chained) */
+  previousSequenceOrderNumber?: string;
 }
 
 export interface OrderCtx {
@@ -57,56 +59,57 @@ export async function deleteOrderLocal(id: string): Promise<void> {
   await persistOrders(all.filter((o) => o.id !== id));
 }
 
+// ---------------------------------------------------------------------------
+// Previous Sequence Order — informational reference (NOT part of the order
+// number, NOT a counter, NOT reserved; it never modifies anything).
+// ---------------------------------------------------------------------------
+
+const SIMPLE_NUMBER_RE = /^(\d+)$/;
+
+/** True when the order number is a plain digit sequence (15000) — chain
+ *  numbers such as 15000-14030-11694-9602-4776 are customer-previous-order
+ *  numbers and are NEVER interpreted as a sequence number. */
+export function isSimpleOrderNumber(orderNumber: string): boolean {
+  return SIMPLE_NUMBER_RE.test(String(orderNumber ?? '').trim());
+}
+
 /**
- * The next counter value for automatic order numbers.
+ * The latest existing SIMPLE numeric order number below `orderNumber`,
+ * searched over the given saved orders (never computed as current − 1 —
+ * missing numbers in between are skipped). Returns the found order number
+ * string, or '' when there is no lower simple order number.
  *
- * Always the HIGHER of the persisted counter and the number implied by the
- * existing orders, so the generator can never hand out a number that already
- * exists (orders imported from the spreadsheet, demo seeds, manual numbers
- * or deleted orders never cause reuse — the counter only ever moves forward).
+ * Examples:
+ *   orders 14995,14997,14998,14999 + current 15000  → '14999'
+ *   orders 14995,14997,14998       + current 15000  → '14998' (14999 missing)
+ *   current 14900 (first number)                    → ''
+ * Chain numbers (14030-11694-9602-4776) are ignored; values compare
+ * numerically (BigInt) so leading zeros and very long numbers stay correct.
  */
-export async function nextCounter(): Promise<number> {
-  const [orders, settings, stored] = await Promise.all([
-    getAllOrders(),
-    storage.getState<Settings>(LS.settings),
-    storage.getState<number>(LS.nextOrderNumber),
-  ]);
-  const s = settings ?? defaultSettings();
-  const base = typeof stored === 'number' && stored > 0 ? stored : s.order.startNumber;
-  return Math.max(base, normalizeCounter(orders, s));
-}
-
-export async function setCounter(n: number): Promise<void> {
-  await storage.set(LS.nextOrderNumber, n);
-}
-
-export function makeOrderNumber(counter: number, settings: Settings): string {
-  const p = settings.order.prefix || '';
-  const pad = settings.order.padding || 0;
-  const body = pad > 0 ? String(counter).padStart(pad, '0') : String(counter);
-  return `${p}${body}`;
-}
-
-/**
- * The counter implied by existing orders. Prefix-aware; reads the leading
- * numeric run of the rest, so BOTH plain numbers (ORD-1001) and composed
- * numbers (ORD-14000-4673-4312-3542 — auto number + old order suffix) move
- * the counter forward, while foreign prefixes and non-numeric numbers are
- * ignored. The counter NEVER goes backwards, so deleting an order can never
- * cause a number reuse.
- */
-export function normalizeCounter(orders: Order[], settings: Settings): number {
-  const prefix = (settings.order.prefix || '').toLowerCase();
-  let max = 0;
-  for (const o of orders) {
-    const n = o.orderNumber.toLowerCase();
-    if (!n.startsWith(prefix)) continue;
-    const rest = n.slice(prefix.length).replace(/^0+/, '');
-    const m = /^(\d+)/.exec(rest);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
+export function previousSequenceOrderFor(orderNumber: string, orders: Order[]): string {
+  const raw = String(orderNumber ?? '').trim();
+  if (!isSimpleOrderNumber(raw)) return '';
+  let current: bigint;
+  try {
+    current = BigInt(raw);
+  } catch {
+    return '';
   }
-  const start = settings.order.startNumber - 1;
-  return Math.max(start, max, 0) + 1;
+  let best: { text: string; value: bigint } | null = null;
+  for (const o of orders) {
+    const m = SIMPLE_NUMBER_RE.exec(String(o.orderNumber ?? '').trim());
+    if (!m) continue; // chains are customer-history numbers, never sequence refs
+    let v: bigint;
+    try {
+      v = BigInt(m[1]);
+    } catch {
+      continue;
+    }
+    if (v < current && (!best || v > best.value)) {
+      best = { text: m[1], value: v };
+    }
+  }
+  return best?.text ?? '';
 }
 
 function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; now?: number } = {}): Order {
@@ -136,6 +139,7 @@ function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; n
     notes: (input.notes ?? '').trim(),
     deliveryCharge: Math.round((Number(input.deliveryCharge) || 0) * 100) / 100,
     previousOrderNumber: (input.previousOrderNumber ?? '').trim() || undefined,
+    previousSequenceOrderNumber: (input.previousSequenceOrderNumber ?? '').trim() || undefined,
     totalAmount: Math.round((computeTotal(products) + (Number(input.deliveryCharge) || 0)) * 100) / 100,
     printed: 'Not Printed',
     printedAt: null,
@@ -178,12 +182,6 @@ export async function createOrder(
   const orders = await getAllOrders();
   orders.push(order);
   await persistOrders(orders);
-
-  // advance the counter past every order we know about (auto + manual):
-  // the next generated number must always be larger than any existing one
-  const cnt = normalizeCounter(orders, ctx.settings);
-  const stored = (await storage.getState<number>(LS.nextOrderNumber)) ?? 0;
-  await setCounter(Math.max(cnt, stored));
 
   if (opts.skipSheet) {
     return { ok: true, order, synced: false };

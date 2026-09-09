@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // End-to-end (in-memory): create → sheet row → edit (same row) → mark printed
-// and the offline/local-first queue.
+// and the offline/local-first queue. Numbers are manual (v1.0.5+): an order
+// saves exactly the typed number plus its separate previous-order/sequence
+// reference columns — nothing is ever auto-generated.
 // ---------------------------------------------------------------------------
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defaultSettings } from '../src/lib/constants';
@@ -43,7 +45,7 @@ function demoSettings(): Settings {
 describe('demo end-to-end flow', () => {
   beforeEach(async () => {
     DemoDriver.resetDemoGrid();
-    await storage.remove([LS.orders, LS.nextOrderNumber, LS.pendingOps, LS.lastRow, LS.sheetHeaders]);
+    await storage.remove([LS.orders, LS.pendingOps, LS.lastRow, LS.sheetHeaders]);
   });
 
   it('creates an order, appends row 2, edits in place at row 2, marks printed', async () => {
@@ -125,27 +127,39 @@ describe('demo end-to-end flow', () => {
   });
 });
 
-describe('counter/numbering', () => {
-  it('normalizeCounter returns the start number on an empty store and jumps past used numbers', async () => {
-    const settings = demoSettings();
-    settings.order.startNumber = 1042;
-    const m = await import('../src/services/orders');
-    await storage.remove([LS.orders, LS.nextOrderNumber]);
-    expect(m.normalizeCounter([], settings)).toBe(1042);
-    const used: Order[] = [
-      {
-        ...((await createOrder(input('ORD-1050'), { settings, fields: flds, products: prods }, { force: true })).order!),
-      },
-    ];
-    expect(m.normalizeCounter(used, settings)).toBe(1051);
-    expect(await m.nextCounter()).toBeGreaterThanOrEqual(1051);
+describe('manual numbering (no auto counter)', () => {
+  beforeEach(async () => {
+    DemoDriver.resetDemoGrid();
+    await storage.remove([LS.orders, LS.pendingOps, LS.lastRow, LS.sheetHeaders]);
   });
 
-  it('makeOrderNumber pads per configuration', async () => {
-    const s = demoSettings();
-    s.order.prefix = 'ORD-';
-    s.order.padding = 6;
-    const { makeOrderNumber } = await import('../src/services/orders');
-    expect(makeOrderNumber(1001, s)).toBe('ORD-001001');
+  it('typed number is stored & written exactly as typed — no prefix, padding or counter', async () => {
+    const settings = demoSettings();
+    const ctx = { settings, fields: flds, products: prods };
+    const res = await createOrder(input('15000'), ctx);
+    expect(res.ok).toBe(true);
+    expect(res.order?.spreadsheetRow).toBe(2);
+    const driver = new DemoDriver(settings);
+    const grid = await driver.getGrid();
+    const header = grid[0];
+    const at = (h: string) => header.indexOf(h);
+    expect(grid[1][at('Order Number')]).toBe('15000');
+  });
+
+  it('previous order number & sequence reference stay separate text columns', async () => {
+    const settings = demoSettings();
+    const ctx = { settings, fields: flds, products: prods };
+    const res = await createOrder({ ...input('15000-14030-11694-9602-4776'), previousOrderNumber: '14030-11694-9602-4776' }, ctx);
+    expect(res.ok).toBe(true);
+    const driver = new DemoDriver(settings);
+    const grid = await driver.getGrid();
+    const at = (h: string) => grid[0].indexOf(h);
+    expect(grid[0]).toContain('Previous Sequence Order Number');
+    expect(grid[1][at('Order Number')]).toBe('15000-14030-11694-9602-4776');
+    expect(grid[1][at('Previous Order Number')]).toBe('14030-11694-9602-4776');
+    expect(grid[1][at('Previous Sequence Order Number')]).toBe('');
+    const saved = (await getAllOrders())[0];
+    expect(saved.previousOrderNumber).toBe('14030-11694-9602-4776');
+    expect(saved.previousSequenceOrderNumber).toBeUndefined();
   });
 });

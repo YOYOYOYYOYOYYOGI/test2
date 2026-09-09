@@ -117,6 +117,7 @@ export function excelColumns(ctx: ExportCtx): ColumnDef[] {
   push('Delivery Charge', (o) => orderDelivery(o));
   push('Total', (o) => orderTotal(o));
   push('Previous Order Number', (o) => o.previousOrderNumber ?? '');
+  push('Previous Sequence Order Number', (o) => o.previousSequenceOrderNumber ?? '');
   return cols;
 }
 

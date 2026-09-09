@@ -14,7 +14,7 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
   await storage.area.clear();
-  await storage.remove([LS.settings, LS.fields, LS.orders, LS.nextOrderNumber, LS.setupDone]);
+  await storage.remove([LS.settings, LS.fields, LS.orders, LS.setupDone]);
 });
 
 describe('Settings rule builders', () => {
@@ -74,8 +74,8 @@ describe('Settings rule builders', () => {
       expect(s.delivery.rules).toHaveLength(1);
       expect(s.delivery.rules[0].charge).toBe(120);
       expect(s.delivery.rules[0].conditions).toHaveLength(1);
-      // rest of settings untouched
-      expect(s.order.prefix).toBe('ORD-');
+      // rest of settings untouched (no auto order-number fields exist anymore)
+      expect(s.order).not.toHaveProperty('prefix');
       expect(s.labels.fontSize).toBe(13);
     } finally {
       root.unmount();

@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Create / Edit order page — the fastest screen in the app.
 // ---------------------------------------------------------------------------
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import type { Order, OrderField, Product, Settings } from '../../types';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, formatMoney } from '../../lib/constants';
@@ -9,17 +9,17 @@ import { Button, Checkbox, Field, Input, Modal, Select, TextArea } from '../../c
 import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons';
 import { validatePincode, validatePhone, validateEmail } from '../../lib/format';
 import { COMPUTED_FIELD_KEYS } from '../../services/config';
-import { makeOrderNumber, nextCounter } from '../../services/orders';
+import { isSimpleOrderNumber, previousSequenceOrderFor } from '../../services/orders';
+import { normalizeOrderNumber, normalizePhone, phoneSearchable } from '../../lib/normalizePhone';
 import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
 import { scanMatches, type MatchHit } from '../../lib/matching';
-import { extraValueForField, entryChainValue, type PreviousOrderEntry } from '../../services/oldOrders';
+import { extraValueForField, type PreviousOrderEntry } from '../../services/oldOrders';
 import { OldOrderLookup } from '../../components/orders/OldOrderLookup';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 
 interface FormState {
   orderNumber: string;
-  manualNumber: boolean;
   customer: { name: string; whatsapp: string; mobile: string; address: string; city: string; state: string; pincode: string };
   selected: { productId: string; productName: string; price: number; qty: string }[];
   paymentStatus: string;
@@ -31,15 +31,22 @@ interface FormState {
   custom: Record<string, string | boolean>;
 }
 
-function emptyForm(settings: Settings, counter: number, fields: OrderField[]): FormState {
+/** Customer previous order chosen through [Use This Order] — stored
+ *  separately from the editable Order Number. */
+interface SelectedPreviousOrder {
+  orderNumber: string;
+  name: string;
+  address: string;
+}
+
+function emptyForm(settings: Settings, fields: OrderField[]): FormState {
   const f = new Map(fields.map((x) => [x.key, x]));
   const custom: FormState['custom'] = {};
   for (const field of fields) {
     if (String(field.key) === 'custom') custom[field.id] = '';
   }
   return {
-    orderNumber: makeOrderNumber(counter, settings),
-    manualNumber: Boolean(settings.order.manualNumbering),
+    orderNumber: '',
     customer: { name: '', whatsapp: '', mobile: '', address: '', city: '', state: '', pincode: '' },
     selected: [],
     paymentStatus: settings.order.defaultPaymentStatus || 'Pending',
@@ -79,7 +86,6 @@ function orderToForm(o: Order, settings: Settings): FormState {
   for (const [k, v] of Object.entries(o.customFields ?? {})) custom[k] = v as string;
   return {
     orderNumber: o.orderNumber,
-    manualNumber: true,
     customer: { ...o.customer },
     selected: Object.values(o.products).map((p) => ({
       productId: p.productId,
@@ -103,54 +109,67 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const products = useAppStore((s) => s.products);
   const orders = useAppStore((s) => s.orders);
   const oldOrders = useAppStore((s) => s.oldOrders);
-  const counter = useAppStore((s) => s.counter);
   const refreshConfig = useAppStore((s) => s.refreshConfig);
   const refreshOrders = useAppStore((s) => s.refreshOrders);
 
   const editing = useMemo(() => orders.find((o) => o.id === editId), [orders, editId]);
   const isNewFlow = !editId; // old-order lookup only on the New Order screen
-  const [form, setForm] = useState<FormState>(() => (editing ? orderToForm(editing, settings) : emptyForm(settings, counter, fields)));
+  const [form, setForm] = useState<FormState>(() => (editing ? orderToForm(editing, settings) : emptyForm(settings, fields)));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [duplicate, setDuplicate] = useState<Order | null>(null);
   const [matchHits, setMatchHits] = useState<MatchHit[] | null>(null);
   const [savedOrder, setSavedOrder] = useState<Order | null>(null);
-  /** old order number selected via the WhatsApp lookup (appended to the auto
-   *  order number; stored separately as previousOrderNumber) */
-  const [selectedOld, setSelectedOld] = useState<string | null>(null);
+  /** customer previous order chosen via the WhatsApp/Mobile lookup — loaded
+   *  into the editable Order Number field and stored separately as
+   *  previousOrderNumber */
+  const [selectedPrev, setSelectedPrev] = useState<SelectedPreviousOrder | null>(() =>
+    editing?.previousOrderNumber
+      ? { orderNumber: editing.previousOrderNumber, name: editing.customer.name, address: '' }
+      : null,
+  );
+  /** informational Previous Sequence Order (read-only reference) */
+  const [prevSeq, setPrevSeq] = useState('');
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const first = useRef(true);
 
-  // refresh counter whenever the page loads
-  useEffect(() => {
-    if (!editing) {
-      void nextCounter().then((n) => {
-        if (first.current) {
-          setForm((f) => (f.manualNumber ? f : { ...f, orderNumber: makeOrderNumber(n, settings) }));
-        }
-      });
-    }
-    first.current = false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /** Focus the Order Number field with the cursor at the START — ready for
+   *  the user to type the new beginning of the number. */
+  const focusOrderNumberStart = () => {
+    window.setTimeout(() => {
+      const el = document.getElementById('order-number') as HTMLInputElement | null;
+      if (!el) return;
+      el.focus();
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      try {
+        el.setSelectionRange(0, 0);
+      } catch {
+        /* no-op */
+      }
+    }, 0);
+  };
 
-  // keep the automatic number in sync: counter + optional old-order suffix
+  // Previous Sequence Order — informational only. Debounced lookup over the
+  // existing orders: the latest existing SIMPLE numeric order number below
+  // the typed number. Never touches the order number itself.
   useEffect(() => {
-    if (form.manualNumber) return;
-    const base = makeOrderNumber(counter, settings);
-    setForm((f) => (f.manualNumber ? f : { ...f, orderNumber: selectedOld ? `${base}-${selectedOld}` : base }));
+    const t = window.setTimeout(() => {
+      const n = form.orderNumber.trim();
+      if (!n) {
+        setPrevSeq('');
+        return;
+      }
+      setPrevSeq(previousSequenceOrderFor(n, orders));
+    }, 250);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counter, selectedOld]);
+  }, [form.orderNumber]);
 
   /** Autofill the form from a previous-order entry (imported history OR a
-   *  current order in the chain) and append ITS chain value to the auto
-   *  number. The entry is only an autofill template — the user can edit
-   *  anything afterwards and the historical/previous order is never
-   *  modified. Chain rule: the picked entry is normally the IMMEDIATE
-   *  parent (complete number reused); an imported record whose own base
-   *  equals the current auto base contributes only its previous-order
-   *  portion (14031-12772-… → previous 12772-…). */
+   *  current order in the chain): customer details are copied and the FULL
+   *  order number is loaded into the editable Order Number field so the user
+   *  can edit its beginning (15000-14030-…). Nothing is generated — the user
+   *  controls the final number. The historical/previous order is never
+   *  modified. */
   const applyOldRecord = (entryIn: PreviousOrderEntry) => {
     const entry: PreviousOrderEntry = { ...entryIn };
     const cust = { ...form.customer };
@@ -200,21 +219,30 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           if (k === 'custom') custom[f.id] = v;
       }
     }
-    // chain value contributed by this pick (null = no previous order part)
-    const chain = entryChainValue(entry, makeOrderNumber(counter, settings));
-    setSelectedOld(chain);
-    setForm((prev) => ({
-      ...prev,
-      ...patch,
-      customer: cust,
-      custom,
-      orderNumber: prev.manualNumber
-        ? prev.orderNumber
-        : chain
-          ? `${makeOrderNumber(counter, settings)}-${chain}`
-          : makeOrderNumber(counter, settings),
-    }));
+    // the complete previous order number is loaded into the editable field —
+    // the user edits the beginning to add their new number (15000-…)
+    const number = normalizeOrderNumber(entry.orderNumber) || entry.orderNumber;
+    setSelectedPrev({ orderNumber: number, name: entry.name || '', address: entry.address || '' });
+    setForm((prev) => ({ ...prev, ...patch, customer: cust, custom, orderNumber: number }));
     setErrors({});
+    focusOrderNumberStart();
+  };
+
+  /** Clear the customer previous-order relationship AND empty the editable
+   *  Order Number field — the user types the complete new number (no chain,
+   *  no automatic number). Customer details stay as typed. */
+  const removePrevious = () => {
+    setSelectedPrev(null);
+    setForm((f) => ({ ...f, orderNumber: '' }));
+    focusOrderNumberStart();
+  };
+
+  /** Drop the current selection so another previous order can be picked; the
+   *  field is emptied until the next [Use This Order] — the old chain is
+   *  never kept. */
+  const changePrevious = () => {
+    setSelectedPrev(null);
+    setForm((f) => ({ ...f, orderNumber: '' }));
   };
 
   // "duplicate order" prefill (#/new?dupe=<id>)
@@ -225,6 +253,9 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     const o = orders.find((x) => x.id === id);
     if (o) {
       setForm(orderToForm(o, settings));
+      setSelectedPrev(o.previousOrderNumber
+        ? { orderNumber: o.previousOrderNumber, name: o.customer.name, address: '' }
+        : null);
       toast('info', `Duplicating ${o.orderNumber}`, { message: 'Review the details — saving will create a new order.' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,13 +295,21 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     const reqField = (key: string) => byKey.get(key);
-    const requiredKeys = ['orderNumber', 'customerName', 'customerWhatsapp', 'customerAddress'];
+    // Order Number: required, manual, stored as text. Duplicate check runs on
+    // the COMPLETE final number before anything is saved.
+    const on = form.orderNumber.trim();
+    if (!on) {
+      errs.orderNumber = 'Please enter an order number.';
+    } else if (orders.some((o) => o.id !== editing?.id && o.orderNumber.trim().toLowerCase() === on.toLowerCase())) {
+      errs.orderNumber = 'This order number already exists. Please enter a different order number.';
+    }
+    const requiredKeys = ['customerName', 'customerWhatsapp', 'customerAddress'];
     for (const key of requiredKeys) {
       const f = reqField(key);
       if (f && f.required) {
-        const v = key === 'orderNumber' ? form.orderNumber : key === 'customerName' ? form.customer.name
+        const v = key === 'customerName' ? form.customer.name
           : key === 'customerWhatsapp' ? form.customer.whatsapp : form.customer.address;
-        if (!v.trim()) errs[key === 'orderNumber' ? 'orderNumber' : `customer.${key}`] = 'This field is required.';
+        if (!v.trim()) errs[`customer.${key}`] = 'This field is required.';
       }
     }
     if (form.customer.whatsapp) { const msg = validatePhone(form.customer.whatsapp, 'WhatsApp number'); if (msg) errs['customer.whatsapp'] = msg; }
@@ -345,7 +384,8 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         notes: form.notes,
         customFields: customValues,
         deliveryCharge: total.delivery,
-        previousOrderNumber: editing ? (selectedOld ?? editing.previousOrderNumber) : (selectedOld ?? undefined),
+        previousOrderNumber: selectedPrev?.orderNumber || undefined,
+        previousSequenceOrderNumber: previousSequenceOrderFor(form.orderNumber.trim(), orders) || undefined,
       };
       const svc = await import('../../services/orders');
       if (editing) {
@@ -356,13 +396,18 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           go('orders');
           return;
         }
-        if (res.duplicate) { setDuplicate(res.duplicate.existing); return; }
+        if (res.duplicate) {
+          setErrors({ orderNumber: 'This order number already exists. Please enter a different order number.' });
+          toast('error', 'This order number already exists', { message: 'Please enter a different order number.' });
+          return;
+        }
         if (res.error) { toast('error', 'Update failed', { message: res.error }); return; }
         return;
       }
       const res = await svc.createOrder(input, { settings, fields, products }, { force });
       if (!res.ok && res.duplicate) {
-        setDuplicate(res.duplicate.existing);
+        setErrors({ orderNumber: 'This order number already exists. Please enter a different order number.' });
+        toast('error', 'This order number already exists', { message: 'Please enter a different order number.' });
         return;
       }
       if (!res.ok || !res.order) {
@@ -482,46 +527,55 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
               {orderNoField && (
                 <>
                   <label htmlFor="order-number">Order Number{orderNoField.required && <span className="req">*</span>}</label>
-                  <div className="row" style={{ gap: 6 }}>
-                    <Input
-                      id="order-number"
-                      value={form.orderNumber}
-                      invalid={Boolean(errors.orderNumber)}
-                      disabled={!form.manualNumber}
-                      onChange={(e) => set({ orderNumber: e.target.value })}
-                      style={{ flex: 1 }}
-                      placeholder={makeOrderNumber(counter, settings)}
-                    />
-                    {!settings.order.manualNumbering && (
-                      <Button
-                        size="sm"
-                        variant={form.manualNumber ? 'secondary' : 'outline'}
-                        title={form.manualNumber ? 'Back to automatic numbering' : 'Enter the order number manually for this order'}
-                        onClick={() => set({ manualNumber: !form.manualNumber, orderNumber: form.manualNumber ? makeOrderNumber(counter, settings) : '' })}
-                      >
-                        {form.manualNumber ? 'Auto' : 'Manual'}
-                      </Button>
-                    )}
-                  </div>
-                  <span className="hint">
-                    {form.manualNumber && !settings.order.manualNumbering ? 'Manual override for this order only.' : !form.manualNumber ? `Auto — next is ${form.orderNumber}` : 'Manual numbering is on (Settings → Order).'}
-                  </span>
-                  {errors.orderNumber && <span className="error-text">{errors.orderNumber}</span>}
-                  {selectedOld !== null && !form.manualNumber && (
-                    <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Previous Order:</span>
-                      <Input
-                        id="previous-order-number"
-                        className="mono"
-                        value={selectedOld}
-                        placeholder="e.g. 12772-10086-8491-7489"
-                        title="The order this new order continues from. Editable — the auto number updates automatically."
-                        onChange={(e) => setSelectedOld(e.target.value.trim())}
-                        style={{ width: 250 }}
-                      />
-                      <Button size="sm" variant="ghost" title="Remove the previous-order value — the new order gets only the auto number" onClick={() => setSelectedOld(null)}>✕ remove</Button>
+                  {selectedPrev && (
+                    <div style={{
+                      marginBottom: 8, border: '1px solid var(--primary-border, var(--border-strong))', borderRadius: 9,
+                      background: 'var(--primary-soft)', padding: '8px 12px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 220 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--primary-dark, var(--primary))' }}>
+                          Selected Previous Order
+                        </div>
+                        <div className="mono" style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>{selectedPrev.orderNumber}</div>
+                        {selectedPrev.name && <div className="small" style={{ color: 'var(--muted)' }}>Customer: {selectedPrev.name}</div>}
+                        {selectedPrev.address && <div className="small muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 420 }}>{selectedPrev.address}</div>}
+                      </div>
+                      <div className="row" style={{ gap: 6 }}>
+                        <Button size="sm" variant="ghost" title="Choose a different previous order" onClick={changePrevious}>Change Order</Button>
+                        <Button size="sm" variant="ghost" title="Remove the previous order — the Order Number field starts empty" onClick={removePrevious}>Remove</Button>
+                      </div>
                     </div>
                   )}
+                  <Input
+                    id="order-number"
+                    value={form.orderNumber}
+                    invalid={Boolean(errors.orderNumber)}
+                    onChange={(e) => set({ orderNumber: e.target.value })}
+                    style={{ maxWidth: 420 }}
+                    placeholder={selectedPrev ? selectedPrev.orderNumber : 'e.g. 15000'}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  {errors.orderNumber && <span className="error-text">{errors.orderNumber}</span>}
+                  <div className="hint" style={{ marginTop: 4, lineHeight: 1.5 }}>
+                    {selectedPrev ? (
+                      <>
+                        This starts from the selected previous order — <b>edit the beginning</b> to add your new order number (e.g. <span className="mono">15000-{selectedPrev.orderNumber}</span>).
+                      </>
+                    ) : (
+                      'Type the complete order number manually — nothing is generated automatically.'
+                    )}
+                  </div>
+                  {(() => {
+                    if (!isSimpleOrderNumber(form.orderNumber.trim())) return null;
+                    return (
+                      <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                        Previous Sequence Order:{' '}
+                        <b style={{ color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}>{prevSeq || 'None'}</b>
+                        <span className="small" style={{ marginLeft: 6 }}>— latest existing order before {form.orderNumber.trim()} (reference only, never added to the order number)</span>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
               {!orderNoField && (
@@ -553,11 +607,20 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                       invalid={Boolean(errors['customer.whatsapp'])}
                       onChange={(e) => setCust({ whatsapp: e.target.value })} />
                     {isNewFlow && (
-                      <OldOrderLookup whatsapp={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} baseNumber={makeOrderNumber(counter, settings)} chosenNumber={selectedOld} onPick={applyOldRecord} />
+                      <OldOrderLookup phone={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} onPick={applyOldRecord} />
                     )}
                   </Field>
                 )
-                  : f.key === 'customerMobile' ? widget(f, f.key, form.customer.mobile, (v) => setCust({ mobile: String(v) }), errors['customer.mobile'])
+                  : f.key === 'customerMobile' ? (
+                    <Field key={f.id} label={f.name} required={f.required} error={errors['customer.mobile']} hint="10-digit Indian number, or +91 …">
+                      <Input type="tel" inputMode="tel" placeholder="9876543210" value={form.customer.mobile}
+                        invalid={Boolean(errors['customer.mobile'])}
+                        onChange={(e) => setCust({ mobile: e.target.value })} />
+                      {isNewFlow && phoneSearchable(form.customer.mobile) && normalizePhone(form.customer.mobile) !== normalizePhone(form.customer.whatsapp) && (
+                        <OldOrderLookup phone={form.customer.mobile} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} onPick={applyOldRecord} />
+                      )}
+                    </Field>
+                  )
                     : f.key === 'customerPincode' ? widget(f, f.key, form.customer.pincode, (v) => setCust({ pincode: String(v) }), errors['customer.pincode'])
                       : null,
             )}
@@ -781,23 +844,6 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         </div>
       </div>
 
-      {/* Duplicate dialog (order number) */}
-      <Modal open={Boolean(duplicate)} onClose={() => setDuplicate(null)} title={`Order ${duplicate?.orderNumber ?? ''} already exists`}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setDuplicate(null)}>Go Back</Button>
-            {duplicate && <>
-              <Button variant="outline" onClick={() => { const id = duplicate.id; setDuplicate(null); go(`edit/${id}`); }}>View Existing Order</Button>
-              <Button variant="primary" onClick={() => { setDuplicate(null); void submit(true); }}>Continue Anyway</Button>
-            </>}
-          </>
-        }>
-        <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
-          <p>An order with the number <b>{duplicate?.orderNumber}</b> already exists ({duplicate?.customer.name ?? 'unknown customer'}).</p>
-          <p className="muted">Saving again would create a duplicate spreadsheet row. Choose what you want to do.</p>
-        </div>
-      </Modal>
-
       {/* Matching/duplicate rule dialog */}
       {matchHits && (
         <Modal open onClose={() => setMatchHits(null)}
@@ -831,11 +877,10 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           onClose={() => setSavedOrder(null)}
           onNew={() => {
             setSavedOrder(null);
-            setSelectedOld(null);
-            void nextCounter().then((n) => {
-              setForm(emptyForm(settings, n, fields));
-              toast('success', 'Ready for the next order');
-            });
+            setSelectedPrev(null);
+            setForm(emptyForm(settings, fields));
+            setErrors({});
+            toast('success', 'Ready for the next order');
           }}
         />
       )}

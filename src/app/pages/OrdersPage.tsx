@@ -132,11 +132,8 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
         products: result.products,
         settings: { ...settings, products: { ...(settings.products ?? {}), included: keep } },
       });
-      const { persistOrders, setCounter } = await import('../../services/orders');
+      const { persistOrders } = await import('../../services/orders');
       await persistOrders(result.orders);
-      // move the auto-number counter past every imported number
-      const { nextCounter } = await import('../../services/orders');
-      await setCounter(await nextCounter());
       await refreshOrders();
       await refreshConfig();
       toast('success', 'Orders + Products imported successfully', {

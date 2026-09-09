@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // v1.0.4 feature tests: delivery-charge rules, duplicate/matching rules,
-// filtered Excel export + totals, auto order-number robustness.
+// filtered Excel export + totals, manual order-number handling (v1.0.5+:
+// no auto counter — numbers are typed and saved exactly as typed).
 // ---------------------------------------------------------------------------
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defaultSettings, makeId } from '../src/lib/constants';
@@ -10,7 +11,7 @@ import type { DeliveryConfig, MatchingConfig, Order, OrderField } from '../src/t
 import { excelGrid, excelHeaders, prepareOrdersExport } from '../src/services/excelExport';
 import { buildLabelModel } from '../src/components/label/labelModel';
 import { LS, storage } from '../src/services/storage';
-import { createOrder, getAllOrders, nextCounter, normalizeCounter } from '../src/services/orders';
+import { createOrder, getAllOrders, isSimpleOrderNumber, previousSequenceOrderFor } from '../src/services/orders';
 
 function field(id: string, name: string, key: string, order = 0, type: OrderField['type'] = 'text'): OrderField {
   return { id, name, type, required: false, key, order };
@@ -182,18 +183,21 @@ describe('filtered Excel export + money columns', () => {
   });
   const c = ctx();
 
-  it('excel export ends with Delivery Charge + Total + Previous Order Number', () => {
+  it('excel export ends with Delivery Charge + Total + Previous Order Number + Previous Sequence Order Number (text)', () => {
     const headers = excelHeaders(c);
-    expect(headers.slice(-3)).toEqual(['Delivery Charge', 'Total', 'Previous Order Number']);
+    expect(headers.slice(-4)).toEqual(['Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number']);
     const o = mk('ORD-1001', 1000, 100);
     o.previousOrderNumber = '4673-4312-3542';
+    o.previousSequenceOrderNumber = '4672';
     const row = excelGrid([o], c)[1];
-    expect(row[row.length - 3]).toBe(100);
-    expect(row[row.length - 2]).toBe(599);
-    expect(row[row.length - 1]).toBe('4673-4312-3542');
+    expect(row[row.length - 4]).toBe(100);
+    expect(row[row.length - 3]).toBe(599);
+    expect(row[row.length - 2]).toBe('4673-4312-3542');
+    expect(row[row.length - 1]).toBe('4672');
     const free = excelGrid([mk('ORD-1002', 1001, 0)], c)[1];
-    expect(free[free.length - 3]).toBe(0);
-    expect(free[free.length - 2]).toBe(499);
+    expect(free[free.length - 4]).toBe(0);
+    expect(free[free.length - 3]).toBe(499);
+    expect(free[free.length - 2]).toBe('');
     expect(free[free.length - 1]).toBe('');
   });
 
@@ -220,74 +224,104 @@ describe('filtered Excel export + money columns', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('auto order number never repeats', () => {
+describe('manual order numbers — typed exactly as-is, nothing auto', () => {
   beforeEach(async () => { await storage.area.clear(); });
 
-  const ord = (n: number, id = `o${n}`): Order => ({
-    id, orderNumber: `ORD-${n}`,
+  const ord = (n: string, id = `o${n}`): Order => ({
+    id, orderNumber: n,
     customer: { name: 'x', whatsapp: '', mobile: '', address: '', city: '', state: '', pincode: '' },
     products: {}, paymentStatus: 'Paid', paymentMethod: 'UPI', transactionId: '', paymentAmount: '',
     orderStatus: 'New', notes: '', totalAmount: 0, printed: 'Not Printed', printedAt: null,
     createdAt: 1, updatedAt: 1, customFields: {},
   });
 
-  it('counter stored as 1001 but ORD-1001…1003 already exist → next is 1004', async () => {
-    const settings = defaultSettings(); // prefix ORD-, start 1001
-    await storage.setMany({ [LS.settings]: settings, [LS.orders]: [ord(1001), ord(1002), ord(1003)], [LS.nextOrderNumber]: 1001 });
-    expect(await nextCounter()).toBe(1004);
+  it('isSimpleOrderNumber: only plain digit numbers qualify — never chains', () => {
+    expect(isSimpleOrderNumber('15000')).toBe(true);
+    expect(isSimpleOrderNumber('  15000 ')).toBe(true);
+    expect(isSimpleOrderNumber('15000-14030-11694-9602-4776')).toBe(false);
+    expect(isSimpleOrderNumber('ORD-1001')).toBe(false);
+    expect(isSimpleOrderNumber('')).toBe(false);
+    expect(isSimpleOrderNumber('015000')).toBe(true);
   });
 
-  it('orders imported without a stored counter (fresh setup) still skip used numbers', async () => {
-    await storage.set(LS.orders, [ord(1001), ord(1002), ord(1003), ord(1004)]);
-    // no LS.nextOrderNumber stored → derived from orders
-    expect(await nextCounter()).toBe(1005);
+  it('previousSequenceOrderFor takes the highest existing simple number strictly below — never typed−1', () => {
+    const orders = [
+      ord('14995'), ord('14997'), ord('14998'), ord('14999'),
+      // chains and prefixed numbers are history identifiers — ignored
+      ord('14030-11694-9602-4776'), ord('ORD-1001'), ord('15001'),
+    ];
+    expect(previousSequenceOrderFor('15000', orders)).toBe('14999');
+    // 14999 missing → falls to 14998 (NOT assumed 14999)
+    const no14999 = orders.filter((o) => o.orderNumber !== '14999');
+    expect(previousSequenceOrderFor('15000', no14999)).toBe('14998');
+    // chain typed → no sequence reference at all
+    expect(previousSequenceOrderFor('15000-14030-11694-9602-4776', orders)).toBe('');
+    // nothing lower → none
+    expect(previousSequenceOrderFor('14995', orders)).toBe('');
+    expect(previousSequenceOrderFor('1', orders)).toBe('');
+    expect(previousSequenceOrderFor('', orders)).toBe('');
   });
 
-  it('deleting an order never reuses its number (counter only moves forward)', async () => {
-    await storage.setMany({ [LS.orders]: [ord(1001), ord(1002)], [LS.nextOrderNumber]: 1005 });
-    expect(await nextCounter()).toBe(1005); // not 1003 — 1003-1005 were used before
-    await storage.set(LS.orders, [ord(1001)]);
-    expect(await nextCounter()).toBe(1005);
-  });
-
-  it('raising the starting number jumps the counter forward', async () => {
-    const s = defaultSettings();
-    s.order.startNumber = 2000;
-    await storage.setMany({ [LS.settings]: s, [LS.orders]: [ord(1001)] });
-    expect(await nextCounter()).toBe(2000);
-  });
-
-  it('createOrder increments past the just-saved number (ORD-1001 → next 1002)', async () => {
+  it('createOrder stores the number exactly as typed — no prefix, padding, or counter', async () => {
     const settings = defaultSettings();
     const ctx = { settings, fields: FIELDS, products: [] };
-    await storage.setMany({ [LS.settings]: settings, [LS.orders]: [], [LS.nextOrderNumber]: 1001 });
-    const input = {
-      orderNumber: 'ORD-1001',
+    await storage.setMany({ [LS.settings]: settings, [LS.orders]: [] });
+    const base = {
       customer: { name: 'Rahul', whatsapp: '9876543210', mobile: '', address: '', city: '', state: 'Gujarat', pincode: '' },
       products: {}, paymentStatus: 'Paid' as const, paymentMethod: 'UPI' as const, transactionId: '',
       paymentAmount: '', orderStatus: 'New' as const, notes: '', deliveryCharge: 100,
     };
-    const res = await createOrder(input, ctx, { skipSheet: true });
+    const res = await createOrder({ ...base, orderNumber: '15000' }, ctx, { skipSheet: true });
     expect(res.ok).toBe(true);
-    expect(res.order!.orderNumber).toBe('ORD-1001');
+    expect(res.order!.orderNumber).toBe('15000');
     expect(res.order!.deliveryCharge).toBe(100);
     expect(res.order!.totalAmount).toBe(100);
-    expect(await nextCounter()).toBe(1002);
-    // and it must never hand out an existing number afterwards
-    const nums = (await getAllOrders()).map((o) => o.orderNumber);
-    for (let i = 0; i < 3; i += 1) {
-      const n = await nextCounter();
-      expect(nums.includes(`ORD-${n}`)).toBe(false);
-      const again = await createOrder({ ...input, orderNumber: `ORD-${n}` }, ctx, { skipSheet: true });
-      expect(again.ok).toBe(true);
-      nums.push(`ORD-${n}`);
-    }
+    expect(res.order!.previousOrderNumber).toBeUndefined();
+    expect(res.order!.previousSequenceOrderNumber).toBeUndefined();
+    // every later order number is manually chosen — no counter exists to advance
+    const res2 = await createOrder({ ...base, orderNumber: '14030-11694-9602-4776' }, ctx, { skipSheet: true });
+    expect(res2.ok).toBe(true);
+    expect(res2.order!.orderNumber).toBe('14030-11694-9602-4776');
+    expect((await getAllOrders()).map((o) => o.orderNumber).sort()).toEqual(['14030-11694-9602-4776', '15000']);
   });
 
-  it('normalizeCounter ignores other prefixes and non-numeric tails', () => {
-    const s = defaultSettings();
-    const orders = [ord(1001), { ...ord(1099, 'o2'), orderNumber: 'PO-1099' }, { ...ord(1003, 'o3'), orderNumber: 'ORD-ABC' }];
-    // only ORD-1001 counts → max(start-1=1000, 1001) + 1
-    expect(normalizeCounter(orders, s)).toBe(1002);
+  it('duplicate check compares the complete final string (manual numbers)', async () => {
+    const settings = defaultSettings();
+    const ctx = { settings, fields: FIELDS, products: [] };
+    const base = {
+      customer: { name: 'Rahul', whatsapp: '9876543210', mobile: '', address: '', city: '', state: 'Gujarat', pincode: '' },
+      products: {}, paymentStatus: 'Paid' as const, paymentMethod: 'UPI' as const, transactionId: '',
+      paymentAmount: '', orderStatus: 'New' as const, notes: '', deliveryCharge: 0,
+    };
+    await storage.setMany({ [LS.settings]: settings, [LS.orders]: [ord('15000'), ord('15000-14030-11694-9602-4776')] });
+    // exact repeat of an existing full string → blocked
+    const dup = await createOrder({ ...base, orderNumber: '15000' }, ctx, { skipSheet: true });
+    expect(dup.ok).toBe(false);
+    expect(dup.duplicate?.existing.orderNumber).toBe('15000');
+    const dupChain = await createOrder({ ...base, orderNumber: '15000-14030-11694-9602-4776' }, ctx, { skipSheet: true });
+    expect(dupChain.ok).toBe(false);
+    // a chain and a plain number sharing a leading segment are DIFFERENT numbers
+    const ok = await createOrder({ ...base, orderNumber: '15000-14030-11694-9602-4776' }, ctx, { skipSheet: true });
+    void ok;
+    const plain = await createOrder({ ...base, orderNumber: '15001' }, ctx, { skipSheet: true });
+    expect(plain.ok).toBe(true);
+  });
+
+  it('previous order chain + sequence reference are stored separately and never merged', async () => {
+    const settings = defaultSettings();
+    const ctx = { settings, fields: FIELDS, products: [] };
+    await storage.setMany({ [LS.settings]: settings, [LS.orders]: [ord('14030-11694-9602-4776')] });
+    const res = await createOrder({
+      orderNumber: '15000-14030-11694-9602-4776',
+      customer: { name: 'Rahul', whatsapp: '9876543210', mobile: '', address: '', city: '', state: 'Gujarat', pincode: '' },
+      products: {}, paymentStatus: 'Paid' as const, paymentMethod: 'UPI' as const, transactionId: '',
+      paymentAmount: '', orderStatus: 'New' as const, notes: '', deliveryCharge: 0,
+      previousOrderNumber: '14030-11694-9602-4776',
+      previousSequenceOrderNumber: '15000',
+    }, ctx, { skipSheet: true });
+    expect(res.ok).toBe(true);
+    expect(res.order!.orderNumber).toBe('15000-14030-11694-9602-4776');
+    expect(res.order!.previousOrderNumber).toBe('14030-11694-9602-4776');
+    expect(res.order!.previousSequenceOrderNumber).toBe('15000');
   });
 });

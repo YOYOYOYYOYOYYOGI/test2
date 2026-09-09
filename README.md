@@ -179,8 +179,11 @@ Google's APIs.
   appended after the last header, and **only if missing**.
 - Product quantity columns follow the pattern **`<Product> Qty`**
   (e.g. `Night Cream Qty`). Products not in an order are written as `0`.
-- System columns: `Total`, `Label Status`, `Printed At`, `Created At`,
-  `Updated At`.
+- System columns: `Delivery Charge`, `Total`, `Previous Order Number`,
+  `Previous Sequence Order Number`, `Label Status`, `Printed At`,
+  `Created At`, `Updated At` — order numbers, previous-order chains and the
+  sequence reference are always written as TEXT (never `15000.0` or
+  scientific notation).
 - Each new order = one new row under the header. Editing an order updates its
   **existing row** in place.
 - Deleting an order in the app never deletes the spreadsheet row (the sheet is
@@ -247,10 +250,16 @@ After enabling products Night Cream & Face Serum + saving orders:
   exists shows *“Matching <Field> found — TXN… already exists in Order
   ORD-1001”* with **View Existing Order** / **Continue Anyway** (duplicates
   are never created silently)
-- Reliable auto order numbers: next number = persisted counter AND past every
-  existing order (imported/manual/deleted orders can never cause a repeated
-  number); the counter survives closing Chrome, changes with your
-  prefix/starting number, and increments only after a successful save
+- **Manual order numbers only** — the extension never generates, prefixes,
+  increments or reserves an order number. The New Order screen has one plain
+  editable **Order Number** field (opens blank): type the complete number
+  (`15000`) and it is saved exactly as typed; an exact repeat of an existing
+  number is blocked. When the typed number is a plain digit sequence, an
+  informational read-only **Previous Sequence Order** hint shows the latest
+  existing plain-digit number below it (`14999` for `15000`, skipping gaps,
+  or `None`) — recomputed live as you type, never added to the number, never
+  saved, never reserved. Chain numbers (`15000-14030-11694-9602-4776`) are
+  never interpreted as sequence numbers
 - Dashboard: **date filter (Today default / Tomorrow / Yesterday / Last 7 days /
   Last 30 days / Custom date / Custom range)** drives Total Orders, Total Sales,
   Paid / COD / Pending counts and a **Product Sales** table (Qty sold, order
@@ -272,30 +281,32 @@ After enabling products Night Cream & Face Serum + saving orders:
   STRINGS — scientific notation and `.0` suffixes are converted back
   (8.347034843E9 → 8347034843) before saving; mobile numbers keep their
   text formatting (`91234 56780`) and are stored separately from WhatsApp
-- New Order page: typing a WhatsApp number debounce-searches a pre-built
-  index covering the imported history **and** current orders created from it
-  (the order chain), showing **all** matching orders (with name, address,
-  WhatsApp and Mobile), newest first — pick the exact one to use as the
-  immediate previous order (e.g. selecting `14000-4673-4312-3542` produces
-  `14001-14000-4673-4312-3542` next time, not the original
-  `4673-4312-3542`). **Chain rule**: the picked order normally becomes the
-  parent as-is; when an *imported* record's own base equals the current auto
-  number (e.g. `14031-12772-10086-8491-7489` while the counter shows 14031)
-  only its previous-order portion is reused (`12772-10086-8491-7489`), so
-  the new number reconstructs `14031-12772-10086-8491-7489` instead of
-  doubling the base. Name/WhatsApp/Mobile/Address/City/State/Pincode/custom
-  fields autofill but stay fully editable — historical orders are never
-  modified; the auto counter keeps counting (14000, 14001, 14002…) and the
-  **Previous Order** value stays visible, editable and removable
-  (Previous Order Number column in the spreadsheet & Excel), unknown numbers
-  just show “No previous order found.” — never an error
+- New Order page: typing a WhatsApp **or Mobile** number debounce-searches a
+  pre-built index covering the imported history **and** current orders
+  created from it (the order chain), showing **all** matching orders newest
+  first — complete order number (e.g. `14030-11694-9602-4776`), name,
+  address, WhatsApp and Mobile (phones are text identifiers — never
+  scientific notation) — with **[Use Latest Order]** (optional) and
+  **[Use This Order]** per result. Picking one autofills
+  Name/WhatsApp/Mobile/Address/City/State/Pincode/custom fields (fully
+  editable — the historical order is never modified), stores the selection
+  separately as the previous order, and loads the previous order's
+  **complete number into the editable Order Number field with the cursor at
+  the start** — the user types the new number before it
+  (`15000-14030-11694-9602-4776`), so the old chain appears exactly once and
+  continues as `15001-15000-14030-11694-9602-4776` next time (never
+  auto-composed, never doubled). A **Selected Previous Order** summary card
+  offers **Change Order** (re-pick; field gets the new full number) and
+  **Remove** (clears the relation and empties the field for manual entry).
+  Imported chain numbers are never split into a base segment; unknown
+  numbers just show “No previous order found.” — never an error
 - **Full Backup & Restore** (Settings → Backup & Restore): export one file —
   `order-manager-backup-YYYY-MM-DD.json` (`backupVersion: 1`) — containing
-  every order (order numbers, previous order numbers, customer details incl.
-  WhatsApp & Mobile, custom fields, payment, delivery, status), imported
-  historical old data, products, field configuration, delivery & matching
-  rules, order-number state and all settings (label design incl. the logo
-  data URL). Import Backup validates the file (invalid files are rejected
+  every order (order numbers, previous order numbers, previous sequence
+  order references, customer details incl. WhatsApp & Mobile, custom fields,
+  payment, delivery, status), imported historical old data, products, field
+  configuration, delivery & matching rules and all settings (label design
+  incl. the logo data URL). Import Backup validates the file (invalid files are rejected
   with a friendly message and never change data), then **Restore Backup**
   asks for explicit confirmation before replacing the local data and
   refreshing the UI — move it to another computer and everything is back
@@ -350,8 +361,9 @@ After enabling products Night Cream & Face Serum + saving orders:
 - Download Label saves any order's label as a PDF; Excel downloads use the
   cached order data (mirror of the spreadsheet) — fast, no sheet re-download
 - Settings: business info + logo upload, spreadsheet reconnect/change,
-  order numbering (prefix/start/padding, manual override), label design,
-  export orders CSV/JSON, export/import settings, reset
+  manual order numbers (payment/order status defaults only — numbering has
+  no auto settings), label design, export orders CSV/JSON, export/import
+  settings, reset
 - Offline queue: orders saved locally with a friendly notice, auto-sync when
   the background worker sees the connection again (or press **Sync Now**)
 - Error handling with friendly messages + “technical details” disclosure
