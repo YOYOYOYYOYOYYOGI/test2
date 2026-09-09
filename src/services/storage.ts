@@ -65,20 +65,54 @@ export interface KeyedState {
 
 function chromeArea(): typeof chrome.storage.local {
   if (typeof chrome !== 'undefined' && chrome.storage?.local) return chrome.storage.local;
-  // in-memory fallback (tests / plain-browser dev)
+  // plain-browser fallback (tests / browser preview): persist in localStorage
+  // when available so the demo keeps its data across reloads; otherwise use
+  // an in-memory map. The Chrome extension itself always takes the branch above.
+  let ls: Storage | null = null;
+  try {
+    if (typeof localStorage !== 'undefined') ls = localStorage;
+  } catch {
+    ls = null;
+  }
   const mem = new Map<string, unknown>();
+  const rawGet = (k: string): unknown => {
+    if (ls) {
+      const raw = ls.getItem(k);
+      if (raw === null) return undefined;
+      try { return JSON.parse(raw) as unknown; } catch { return undefined; }
+    }
+    return mem.get(k);
+  };
+  const rawSet = (k: string, v: unknown) => {
+    if (ls) { try { ls.setItem(k, JSON.stringify(v)); } catch { mem.set(k, v); } }
+    else mem.set(k, v);
+  };
+  const rawRemove = (k: string) => {
+    if (ls) ls.removeItem(k);
+    mem.delete(k);
+  };
   const m = {
     get: async (keys?: string | string[] | Record<string, unknown>) => {
       const out: Record<string, unknown> = {};
-      if (!keys) mem.forEach((v, k) => (out[k] = v));
-      else if (typeof keys === 'string') { if (mem.has(keys)) out[keys] = mem.get(keys); }
-      else if (Array.isArray(keys)) keys.forEach((k) => { if (mem.has(k)) out[k] = mem.get(k); });
-      else Object.entries(keys).forEach(([k, d]) => (out[k] = mem.has(k) ? mem.get(k) : d));
+      if (!keys) {
+        if (ls) {
+          for (let i = 0; i < ls.length; i += 1) {
+            const k = ls.key(i);
+            if (k) out[k] = rawGet(k);
+          }
+        } else mem.forEach((v, k) => (out[k] = v));
+      }
+      else if (typeof keys === 'string') { const v = rawGet(keys); if (v !== undefined) out[keys] = v; }
+      else if (Array.isArray(keys)) keys.forEach((k) => { const v = rawGet(k); if (v !== undefined) out[k] = v; });
+      else Object.entries(keys).forEach(([k, d]) => (out[k] = rawGet(k) ?? d));
       return out;
     },
-    set: async (items: Record<string, unknown>) => { Object.entries(items).forEach(([k, v]) => mem.set(k, v)); },
-    remove: async (keys: string | string[]) => { (Array.isArray(keys) ? keys : [keys]).forEach((k) => mem.delete(k)); },
-    clear: async () => mem.clear(),
+    set: async (items: Record<string, unknown>) => { Object.entries(items).forEach(([k, v]) => rawSet(k, v)); },
+    remove: async (keys: string | string[]) => { (Array.isArray(keys) ? keys : [keys]).forEach((k) => rawRemove(k)); },
+    clear: async () => {
+      if (ls) ls.clear();
+      mem.clear();
+    },
   };
   return m as never;
 }
