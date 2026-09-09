@@ -1,16 +1,25 @@
 // ---------------------------------------------------------------------------
-// Minimal real .xlsx writer — zero dependencies (~200 lines).
+// Minimal real .xlsx writer — zero dependencies.
 //
 // An .xlsx file is a ZIP (STORE method) of OOXML parts. We generate exactly
 // the parts Excel needs:
 //   [Content_Types].xml, _rels/.rels, xl/workbook.xml,
 //   xl/_rels/workbook.xml.rels, xl/styles.xml (bold header font),
-//   xl/worksheets/sheet1.xml (inline strings, frozen header row, col widths)
+//   xl/worksheets/sheetN.xml (inline strings, frozen header row, col widths)
 //
-// Output opens in Excel / LibreOffice / Google Sheets as a genuine workbook —
-// NOT a renamed CSV.
+// Supports ONE or MORE sheets in one workbook (used by the full
+// Orders+Products+Order Items export). Output opens in Excel / LibreOffice /
+// Google Sheets as a genuine workbook — NOT a renamed CSV.
 // ---------------------------------------------------------------------------
 export type XlsxCell = string | number | boolean | null | undefined;
+
+export interface XlsxSheet {
+  /** Sheet tab name (sanitized; default "Sheet") */
+  name?: string;
+  rows: XlsxCell[][];
+  /** Freeze the first row (default true) */
+  freezeHeader?: boolean;
+}
 
 export interface XlsxOptions {
   /** Sheet tab name (default "Orders") */
@@ -32,6 +41,16 @@ function esc(s: string): string {
 function cleanText(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/[\r\n\t]+/g, ' ');
+}
+
+/** Excel forbids : \ / ? * [ ] in sheet tab names; keep ≤ 31 chars. */
+function cleanSheetName(name: string): string {
+  const cleaned = (name || '')
+    .replace(/[\\/:?*[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31);
+  return cleaned || 'Sheet';
 }
 
 function cellRef(col: number, row: number): string {
@@ -113,20 +132,35 @@ function buildSheetXml(rows: XlsxCell[][], freeze: boolean): string {
   );
 }
 
-const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+function contentTypesXml(sheetCount: number): string {
+  let overrides = '';
+  for (let i = 1; i <= sheetCount; i += 1) {
+    overrides += `<Override PartName="/xl/worksheets/sheet${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`;
+  }
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+}
 
 const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
 
-function workbookXml(sheetName: string): string {
-  const name = cleanText(sheetName || 'Orders').slice(0, 31) || 'Orders';
+function workbookXml(sheetNames: string[]): string {
+  const sheets = sheetNames
+    .map((name, i) => `<sheet name="${esc(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+    .join('');
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(name)}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets}</sheets></workbook>`;
 }
 
-const WORKBOOK_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+function workbookRelsXml(sheetCount: number): string {
+  let rels = '';
+  for (let i = 1; i <= sheetCount; i += 1) {
+    rels += `<Relationship Id="rId${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i}.xml"/>`;
+  }
+  rels += `<Relationship Id="rId${sheetCount + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`;
+}
 
 // font 0 = regular, font 1 = bold; cellXfs 0 = default, 1 = bold
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -236,18 +270,42 @@ function buildZip(entries: Array<{ name: string; data: Uint8Array }>): Uint8Arra
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-export function xlsxBytes(rows: XlsxCell[][], options: XlsxOptions = {}): Uint8Array {
-  const sheetName = options.sheetName ?? 'Orders';
-  const freeze = options.freezeHeader !== false;
+
+/** Build a real multi-sheet .xlsx workbook. Sheet names are sanitized and
+ *  de-duplicated so Excel never rejects the file. */
+export function xlsxWorkbookBytes(sheets: XlsxSheet[]): Uint8Array {
+  const list = sheets.map((s) => ({ name: cleanSheetName(s.name ?? ''), rows: s.rows ?? [], freeze: s.freezeHeader !== false }));
+  const used = new Map<string, number>();
+  const names = list.map((s) => {
+    let name = s.name;
+    const n = used.get(name.toLowerCase()) ?? 0;
+    used.set(name.toLowerCase(), n + 1);
+    if (n > 0) name = `${name.slice(0, 28)} ${n + 1}`;
+    return name;
+  });
+
   const parts: Array<{ name: string; data: Uint8Array }> = [
-    { name: '[Content_Types].xml', data: enc.encode(CONTENT_TYPES) },
+    { name: '[Content_Types].xml', data: enc.encode(contentTypesXml(list.length)) },
     { name: '_rels/.rels', data: enc.encode(ROOT_RELS) },
-    { name: 'xl/workbook.xml', data: enc.encode(workbookXml(sheetName)) },
-    { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(WORKBOOK_RELS) },
+    { name: 'xl/workbook.xml', data: enc.encode(workbookXml(names)) },
+    { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(workbookRelsXml(list.length)) },
     { name: 'xl/styles.xml', data: enc.encode(STYLES) },
-    { name: 'xl/worksheets/sheet1.xml', data: enc.encode(buildSheetXml(rows, freeze)) },
   ];
+  list.forEach((s, i) => {
+    parts.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(buildSheetXml(s.rows, s.freeze)) });
+  });
   return buildZip(parts);
+}
+
+export function xlsxWorkbookBlob(sheets: XlsxSheet[]): Blob {
+  const bytes = xlsxWorkbookBytes(sheets);
+  return new Blob([bytes as unknown as BlobPart], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+export function xlsxBytes(rows: XlsxCell[][], options: XlsxOptions = {}): Uint8Array {
+  return xlsxWorkbookBytes([{ name: options.sheetName ?? 'Orders', rows, freezeHeader: options.freezeHeader }]);
 }
 
 /** Convert the workbook bytes to a downloadable Blob. */

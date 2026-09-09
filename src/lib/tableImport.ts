@@ -264,13 +264,44 @@ function colIndexFromRef(ref: string): number {
   return n - 1;
 }
 
-/** Regex-based OOXML reader (works everywhere — no DOMParser dependency). */
-export async function parseXlsxRows(buf: ArrayBuffer): Promise<string[][]> {
+/** Regex-based OOXML reader (works everywhere — no DOMParser dependency).
+ *  Returns every worksheet of the workbook in tab order: [{ name, rows }]. */
+export interface XlsxSheetRows {
+  name: string;
+  rows: string[][];
+}
+
+export async function parseXlsxSheets(buf: ArrayBuffer): Promise<XlsxSheetRows[]> {
   const entries = await unzipEntries(buf);
-  const sheetNames = [...entries.keys()]
-    .filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k))
-    .sort((a, b) => Number(a.match(/\d+/)?.[0] ?? 0) - Number(b.match(/\d+/)?.[0] ?? 0));
-  if (sheetNames.length === 0) throw new Error('No worksheet found in the .xlsx file.');
+
+  // sheet tab order + names come from xl/workbook.xml; the part file for
+  // each sheet comes from xl/_rels/workbook.xml.rels
+  let sheetOrder: { name: string; rid: string }[] = [];
+  const workbookXml = entries.get('xl/workbook.xml');
+  if (workbookXml) {
+    const xml = utf8(workbookXml);
+    const sheetRe = /<sheet\b([^>]*)\/>/g;
+    let m: RegExpExecArray | null;
+    while ((m = sheetRe.exec(xml)) !== null) {
+      const attrs = m[1];
+      const name = /name="([^"]*)"/.exec(attrs)?.[1] ?? '';
+      const rid = /r:id="rId(\d+)"/.exec(attrs)?.[1] ?? '';
+      sheetOrder.push({ name, rid });
+    }
+  }
+  let relTargets = new Map<string, string>();
+  const relsXml = entries.get('xl/_rels/workbook.xml.rels');
+  if (relsXml) {
+    const xml = utf8(relsXml);
+    const relRe = /<Relationship\b([^>]*)\/>/g;
+    let m: RegExpExecArray | null;
+    while ((m = relRe.exec(xml)) !== null) {
+      const attrs = m[1];
+      const id = /Id="rId(\d+)"/.exec(attrs)?.[1] ?? '';
+      const target = /Target="([^"]*)"/.exec(attrs)?.[1] ?? '';
+      if (id) relTargets.set(id, target);
+    }
+  }
 
   // shared strings
   const sst: string[] = [];
@@ -282,35 +313,74 @@ export async function parseXlsxRows(buf: ArrayBuffer): Promise<string[][]> {
     while ((m = siRe.exec(xml)) !== null) sst.push(textsOfTag(m[1], 't').join(''));
   }
 
-  const sheetXml = utf8(entries.get(sheetNames[0])!);
-  const rows: string[][] = [];
-  const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
-  let rm: RegExpExecArray | null;
-  while ((rm = rowRe.exec(sheetXml)) !== null) {
-    const rowBody = rm[1];
-    const row: string[] = [];
-    const cellRe = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
-    let cm: RegExpExecArray | null;
-    while ((cm = cellRe.exec(rowBody)) !== null) {
-      const attrs = cm[1];
-      const inner = cm[2];
-      const idx = colIndexFromRef(/r="([^"]*)"/.exec(attrs)?.[1] ?? '');
-      if (idx < 0) continue;
-      const type = /t="([^"]*)"/.exec(attrs)?.[1] ?? 'n';
-      const vRaw = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? '';
-      const raw = decodeXml(vRaw);
-      let value: string;
-      if (type === 's') value = sst[Number(raw)] ?? '';
-      else if (type === 'inlineStr') value = textsOfTag(inner, 't').join('');
-      else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
-      else value = raw; // numbers / strings / errors
-      row[idx] = value;
+  const parseSheetRows = (sheetXml: string): string[][] => {
+    const rows: string[][] = [];
+    const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+    let rm: RegExpExecArray | null;
+    while ((rm = rowRe.exec(sheetXml)) !== null) {
+      const rowBody = rm[1];
+      const row: string[] = [];
+      // A cell is either a normal pair or a self-closing empty cell
+      // (`<c r="D2"/>`) — the self-closing form must never swallow the next
+      // cell, so it is matched and skipped explicitly.
+      const cellRe = /<c\b([^>]*?)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+      let cm: RegExpExecArray | null;
+      while ((cm = cellRe.exec(rowBody)) !== null) {
+        if (cm[1] !== undefined) continue; // self-closing empty cell
+        const attrs = cm[2];
+        const inner = cm[3];
+        const idx = colIndexFromRef(/r="([^"]*)"/.exec(attrs)?.[1] ?? '');
+        if (idx < 0) continue;
+        const type = /t="([^"]*)"/.exec(attrs)?.[1] ?? 'n';
+        const vRaw = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? '';
+        const raw = decodeXml(vRaw);
+        let value: string;
+        if (type === 's') value = sst[Number(raw)] ?? '';
+        else if (type === 'inlineStr') value = textsOfTag(inner, 't').join('');
+        else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
+        else value = raw; // numbers / strings / errors
+        row[idx] = value;
+      }
+      // trim empty trailing cells
+      while (row.length && (row[row.length - 1] ?? '') === '') row.pop();
+      if (row.some((x) => String(x ?? '').trim() !== '')) rows.push(row);
     }
-    // trim empty trailing cells
-    while (row.length && (row[row.length - 1] ?? '') === '') row.pop();
-    if (row.some((x) => String(x ?? '').trim() !== '')) rows.push(row);
+    return rows;
+  };
+
+  // resolve part file per sheet in tab order
+  const resolved: XlsxSheetRows[] = [];
+  const fallbackSheets = [...entries.keys()]
+    .filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k))
+    .sort((a, b) => Number(a.match(/\d+/)?.[0] ?? 0) - Number(b.match(/\d+/)?.[0] ?? 0));
+  if (sheetOrder.length === 0) {
+    // minimal/foreign workbooks without a parsed workbook.xml — fall back to
+    // numeric sheet order with generic names
+    for (const key of fallbackSheets) {
+      const sheetXml = entries.get(key);
+      if (sheetXml) resolved.push({ name: key, rows: parseSheetRows(utf8(sheetXml)) });
+    }
+    return resolved;
   }
-  return rows;
+  for (const s of sheetOrder) {
+    const target = relTargets.get(s.rid) ?? '';
+    const fileName = target.replace(/^xl\//, '').replace(/^\/xl\//, '');
+    const sheetXml = entries.get(fileName.startsWith('xl/') ? fileName : `xl/${fileName.replace(/^\//, '')}`);
+    if (sheetXml) resolved.push({ name: s.name, rows: parseSheetRows(utf8(sheetXml)) });
+    else if (fallbackSheets.length > 0) {
+      const key = fallbackSheets.shift()!;
+      const sheetXml2 = entries.get(key);
+      if (sheetXml2) resolved.push({ name: s.name, rows: parseSheetRows(utf8(sheetXml2)) });
+    }
+  }
+  return resolved;
+}
+
+/** First worksheet of a workbook (used by the old-data importer). */
+export async function parseXlsxRows(buf: ArrayBuffer): Promise<string[][]> {
+  const sheets = await parseXlsxSheets(buf);
+  if (sheets.length === 0) throw new Error('No worksheet found in the .xlsx file.');
+  return sheets[0].rows;
 }
 
 /** Read an uploaded file: .xlsx (magic bytes) → OOXML parse; otherwise CSV/TSV text. */

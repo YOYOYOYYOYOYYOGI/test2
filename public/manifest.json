@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Order Label Manager \u2014 WhatsApp Orders to Sheets & Labels",
   "short_name": "Order Label Mgr",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Turn WhatsApp orders into spreadsheet rows and printable shipping labels. Works with Google Sheets.",
   "icons": {
     "16": "icons/icon16.png",

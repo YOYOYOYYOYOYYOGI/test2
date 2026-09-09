@@ -299,10 +299,40 @@ After enabling products Night Cream & Face Serum + saving orders:
   with a friendly message and never change data), then **Restore Backup**
   asks for explicit confirmation before replacing the local data and
   refreshing the UI — move it to another computer and everything is back
-- Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`) and
-  **Download All Orders** (`all-orders.xlsx`) — real `.xlsx` files with bold
-  headers, frozen header row, auto-sized columns, dynamic columns from your
-  configured fields + one `<Product> Qty` column per product, one order per row
+- **Products → Export Products** (`products-YYYY-MM-DD.xlsx`): the product
+  master only (Product ID / Name / SKU / Price / Label Name / Status /
+  Position / Created At) in a real `.xlsx` with frozen headers — take it to
+  another computer and re-import there
+- **Products → Import Products**: pick a `.xlsx`/CSV and review a preview
+  (Products Found / New / Existing to Update / Duplicates) before confirming.
+  Products match by **SKU → Product ID → Name** (case/space-insensitive) and
+  are **updated in place — never duplicated** (importing “Night Cream,
+  NC001, 550” updates the existing product); internal IDs and catalogue
+  order are preserved, so existing orders keep working. Optional cells that
+  the file lacks never erase current values; new rows append at the end and
+  reuse the file's Product ID only when it is free. Re-importing an exported
+  file changes nothing (idempotent)
+- Orders → **Export Orders + Products** (`orders-products-YYYY-MM-DD.xlsx`):
+  one workbook, three sheets — **Orders** (every order field incl. custom
+  fields + Label Status / Printed At / Created At / Updated At), **Products**
+  (product master) and **Order Items** (Order Number / Product ID / Product
+  Name / SKU / Quantity / Price / Subtotal per line). Phone numbers and
+  order numbers are text (never `8.34E9` or `14031.0`); quantities are
+  numbers
+- Orders → **Import Orders + Products**: preview counts (Orders Found /
+  Products Found / Order Items Found; New vs Existing Orders and Products)
+  then confirm. Orders match by **Order Number** — existing ones are updated,
+  never duplicated (a file can never create two `14031`s), and local orders
+  not in the file are never deleted. Order lines reconnect via the file's
+  Product ID → SKU → Name, but each line carries its own historical snapshot
+  (name/SKU/qty/price at order time), so later product renames or price
+  edits never rewrite old orders; products missing from the catalogue stay
+  readable as ghost lines. Re-importing an unchanged file is a no-op
+- Orders → Excel: **Download Today's Orders** (`orders-YYYY-MM-DD.xlsx`),
+  **Download Filtered Orders** and **Download All Orders** (`all-orders.xlsx`)
+  — real `.xlsx` files with bold headers, frozen header row, auto-sized
+  columns, dynamic columns from your configured fields + one `<Product> Qty`
+  column per product (zero-filled), one order per row
 - Per-order **Download Label** → real one-page PDF (`ORD-1001-label.pdf`) at the
   exact configured label size — same single renderer as preview & print
 - **Label Design**: upload logo (persisted in settings — appears in preview,

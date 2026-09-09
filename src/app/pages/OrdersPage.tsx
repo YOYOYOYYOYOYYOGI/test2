@@ -1,17 +1,18 @@
 // ---------------------------------------------------------------------------
 // Orders — history, search, filters, details, multi-label printing
 // ---------------------------------------------------------------------------
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import type { Order } from '../../types';
 import { formatDate, formatMoney, startOfDay, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../lib/constants';
 import { hasDeliverySettings } from '../../lib/delivery';
 import { orderDelivery, orderSubtotal, orderTotal } from '../../lib/format';
 import { Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Pagination, Select, paymentBadgeColor, orderStatusColor } from '../../components/ui';
-import { IconCopy, IconDownload, IconEye, IconList, IconPrinter, IconRefresh, IconSearch, IconTrash } from '../../components/icons';
+import { IconCopy, IconDownload, IconEye, IconList, IconPrinter, IconRefresh, IconSearch, IconTrash, IconUpload } from '../../components/icons';
 import { openPrintPage } from '../../components/label/printFlow';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 import { downloadBlob, prepareOrdersExport } from '../../services/excelExport';
+import { applyFullImport, fullWorkbook, readFullWorkbook, type FullImportPlan } from '../../services/dataExchange';
 import { downloadOrderLabelPdf, labelDownloadErrorMessage } from '../../services/labelDownload';
 
 type DateFilter = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
@@ -22,7 +23,9 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
   const fields = useAppStore((s) => s.fields);
   const products = useAppStore((s) => s.products);
   const removeOrder = useAppStore((s) => s.removeOrder);
+  const persist = useAppStore((s) => s.persist);
   const refreshConfig = useAppStore((s) => s.refreshConfig);
+  const refreshOrders = useAppStore((s) => s.refreshOrders);
 
   const [q, setQ] = useState(() => {
     const m = window.location.hash.match(/[?&]q=([^&]+)/);
@@ -43,8 +46,10 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
   const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [xlBusy, setXlBusy] = useState<'today' | 'all' | 'filtered' | null>(null);
+  const [xlBusy, setXlBusy] = useState<'today' | 'all' | 'filtered' | 'full' | 'import' | null>(null);
   const [dlLabelId, setDlLabelId] = useState<string | null>(null);
+  const [pendingFullImport, setPendingFullImport] = useState<FullImportPlan | null>(null);
+  const fullImportFileRef = useRef<HTMLInputElement>(null);
 
   const exportCtx = useMemo(() => ({ settings, fields, products }), [settings, fields, products]);
 
@@ -65,6 +70,81 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
       toast('success', `${filename} downloaded — ${count} order${count === 1 ? '' : 's'}.`);
     } catch (e) {
       toast('error', 'Excel download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setXlBusy(null);
+    }
+  };
+
+  // ----- Export Orders + Products (3 sheets) / Import the same workbook -----
+  const exportFull = async () => {
+    if (xlBusy) return;
+    setXlBusy('full');
+    try {
+      const { blob, filename, orderCount, productCount, itemCount } = fullWorkbook(orders, exportCtx);
+      if (orderCount === 0 && productCount === 0) {
+        toast('info', 'Nothing to export yet');
+        return;
+      }
+      downloadBlob(filename, blob);
+      toast('success', `${filename} downloaded`, {
+        message: `${orderCount} orders · ${productCount} products · ${itemCount} order items — sheets: Orders / Products / Order Items.`,
+      });
+    } catch (e) {
+      toast('error', 'Excel download failed', { message: e instanceof Error ? e.message : undefined });
+    } finally {
+      setXlBusy(null);
+    }
+  };
+
+  const pickFullImportFile = async (file: File) => {
+    if (xlBusy) return;
+    setXlBusy('import');
+    try {
+      const plan = await readFullWorkbook(file, { orders, products, fields, settings });
+      if (!plan.ok) {
+        toast('error', 'Not an Order Manager workbook', {
+          message: plan.errors.slice(0, 3).join(' '),
+        });
+        return;
+      }
+      setPendingFullImport(plan);
+    } catch (e) {
+      toast('error', 'Could not read that workbook', { message: e instanceof Error ? e.message : 'Use an orders-products .xlsx file exported by this extension.' });
+    } finally {
+      setXlBusy(null);
+      if (fullImportFileRef.current) fullImportFileRef.current.value = '';
+    }
+  };
+
+  const doFullImport = async () => {
+    if (!pendingFullImport) return;
+    setXlBusy('import');
+    try {
+      const result = applyFullImport(pendingFullImport, { orders, products, fields, settings });
+      // products: same inclusion rule as the Products page (new active ones
+      // get a qty-column slot, stale ones are dropped)
+      const prevIncluded = settings.products?.included ?? products.filter((p) => p.active).map((p) => p.id);
+      const known = new Set(result.products.map((p) => p.id));
+      const active = new Set(result.products.filter((p) => p.active).map((p) => p.id));
+      const keep = prevIncluded.filter((id) => known.has(id) && active.has(id));
+      for (const pr of result.products) if (pr.active && !keep.includes(pr.id)) keep.push(pr.id);
+      await persist({
+        products: result.products,
+        settings: { ...settings, products: { ...(settings.products ?? {}), included: keep } },
+      });
+      const { persistOrders, setCounter } = await import('../../services/orders');
+      await persistOrders(result.orders);
+      // move the auto-number counter past every imported number
+      const { nextCounter } = await import('../../services/orders');
+      await setCounter(await nextCounter());
+      await refreshOrders();
+      await refreshConfig();
+      toast('success', 'Orders + Products imported successfully', {
+        message: `${pendingFullImport.ordersFound} orders (${pendingFullImport.newOrders} new · ${pendingFullImport.existingOrders} updated) · ${pendingFullImport.productsFound} products (${pendingFullImport.newProducts} new · ${pendingFullImport.existingProducts} updated${pendingFullImport.duplicateProducts ? ` · ${pendingFullImport.duplicateProducts} duplicate rows skipped` : ''}) · ${pendingFullImport.itemsFound} order items connected.`,
+      });
+      setPendingFullImport(null);
+    } catch (e) {
+      toast('error', 'Import failed', { message: e instanceof Error ? e.message : undefined });
     } finally {
       setXlBusy(null);
     }
@@ -187,6 +267,19 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
           </Button>
           <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void downloadExcel('all')} disabled={xlBusy !== null || orders.length === 0} title="Download all orders as an Excel .xlsx file">
             {xlBusy === 'all' ? <span className="spinner" /> : <>Download All Orders</>}
+          </Button>
+          <Button variant="outline" icon={<IconDownload width={14} />} onClick={() => void exportFull()} disabled={xlBusy !== null} title="One workbook with 3 sheets — Orders, Products, Order Items">
+            {xlBusy === 'full' ? <span className="spinner" /> : 'Export Orders + Products'}
+          </Button>
+          <input
+            ref={fullImportFileRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void pickFullImportFile(f); else e.target.value = ''; }}
+          />
+          <Button variant="outline" icon={<IconUpload width={14} />} onClick={() => fullImportFileRef.current?.click()} disabled={xlBusy !== null} title="Restore orders + products from an orders-products .xlsx workbook">
+            {xlBusy === 'import' ? <span className="spinner" /> : 'Import Orders + Products'}
           </Button>
           {pendingCount > 0 && (
             <Button variant="outline" icon={<IconRefresh width={14} />} onClick={() => void syncNow()} disabled={syncing}>
@@ -329,6 +422,35 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
       {labelOrder && (
         <LabelPreviewModal order={labelOrder} onClose={() => setLabelOrder(null)} onNew={undefined} />
       )}
+      {/* Full import preview — nothing stored before confirm */}
+      <Modal open={Boolean(pendingFullImport)} onClose={() => setPendingFullImport(null)} wide title={`Review workbook (${pendingFullImport?.fileName ?? ''})`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingFullImport(null)} disabled={xlBusy === 'import'}>Cancel</Button>
+            <Button variant="primary" disabled={xlBusy === 'import' || (pendingFullImport?.ordersFound ?? 0) === 0} onClick={() => void doFullImport()}>
+              {xlBusy === 'import' ? <span className="spinner" /> : 'Import'}
+            </Button>
+          </>
+        }>
+        {pendingFullImport && (
+          <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+            <p style={{ margin: 0 }}>
+              <b>Orders Found:</b> {pendingFullImport.ordersFound} · <b>Products Found:</b> {pendingFullImport.productsFound} ·{' '}
+              <b>Order Items Found:</b> {pendingFullImport.itemsFound}
+            </p>
+            <p style={{ margin: 0 }}>
+              New Orders: <b>{pendingFullImport.newOrders}</b> · Existing Orders (updated): <b>{pendingFullImport.existingOrders}</b> ·{' '}
+              New Products: <b>{pendingFullImport.newProducts}</b> · Existing Products (updated): <b>{pendingFullImport.existingProducts}</b>
+              {pendingFullImport.duplicateProducts > 0 && <> · Duplicate product rows skipped: <b>{pendingFullImport.duplicateProducts}</b></>}
+            </p>
+            {pendingFullImport.problemRows > 0 && <p className="hint" style={{ margin: 0 }}>{pendingFullImport.problemRows} row(s) skipped (no product name/SKU or no order number).</p>}
+            <p className="hint" style={{ margin: '4px 0 0' }}>
+              Products match by SKU → ID → Name (updated, never duplicated). Orders match by Order Number (updated, never duplicated).
+              Order lines keep their own saved name/SKU/quantity/price — later product changes never rewrite old orders. Your current orders & products that are not in the file stay untouched.
+            </p>
+          </div>
+        )}
+      </Modal>
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete order?"
