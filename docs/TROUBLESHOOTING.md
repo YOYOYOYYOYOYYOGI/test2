@@ -4,11 +4,13 @@
 
 | Symptom | Fix |
 | --- | --- |
-| “Sign-in was cancelled” immediately | The OAuth Client ID's *Item ID* must equal your extension ID (see GOOGLE_SETUP.md §4). Extension IDs change when you reload a folder from a different path or after a fresh unpack. |
-| `error=redirect_uri_mismatch` in technical details | Registered redirect URI must be `https://<EXTENSION_ID>.chromiumapp.org/google-sheets` (exactly). |
+| “Google OAuth is not configured yet” | The placeholder Client ID is still in `manifest.json` → `oauth2` → `client_id`. Do the one-time setup in GOOGLE_SETUP.md and paste your real Client ID there, then reload the extension. |
+| “The OAuth client was not found / invalid_client” in the Google window | The Client ID was deleted or belongs to another project — create a fresh **Chrome Extension** OAuth client whose **Item ID** is your extension ID (shown in Settings → Spreadsheet → Google OAuth setup) and put its Client ID into `manifest.json` → `oauth2` → `client_id`. |
+| “Google connection expired. Please reconnect…” | The grant was revoked or Chrome could not refresh it silently → Settings → Spreadsheet → Connect Google Account again. Orders saved meanwhile stay local and sync afterwards. |
 | 403 `access_denied` when saving | Re-consent: Settings → Spreadsheet → Disconnect → Connect again. |
 | 403 `userRateLimitExceeded` | Rare — retry in a minute. |
 | “App not verified” | Normal for personal test apps. Continue → Advanced → proceed, or add your email under OAuth consent → Test users. |
+| Extension ID changed after update | v1.0.9 pins a stable ID via the manifest `key`. If you are updating from an older version, export a Full Backup first, uninstall the old version, load v1.0.9 and restore the backup. Re-register the OAuth client's Item ID with the new ID once. |
 
 ## Sheet issues
 

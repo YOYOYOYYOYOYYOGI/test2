@@ -4,7 +4,7 @@
 // directly for local data and send messages here only when the worker is
 // required (identity flow, sheet API, sync).
 // ---------------------------------------------------------------------------
-import { exchangeCode, ensureFreshConnection, launchChromeAuthFlow } from '../services/google/oauth';
+import { clearCachedGoogleTokens, connectionFromSession, friendlyAuthMessage, getGoogleAuthToken, GoogleAuthError, googleAccountEmail, isClientConfigured, oauthClientId } from '../services/google/oauth';
 import { GoogleSheetsDriver } from '../services/google/googleDriver';
 import { LS, storage } from '../services/storage';
 import type { Settings, SpreadsheetConnection } from '../types';
@@ -26,15 +26,33 @@ async function saveConnection(connection: SpreadsheetConnection | null) {
   await storage.set(LS.settings, s);
 }
 
-async function connectAccount(): Promise<{ ok: true; email: string | null } | MsgResponse> {
+/** Friendly response for auth problems; technical detail goes to the console
+ *  only — users never see invalid_client/401/redirect_uri_mismatch. */
+function authFailure(e: unknown): MsgResponse {
+  if (e instanceof GoogleAuthError) {
+    console.error(LOG, 'google auth technical detail:', e.technical ?? e.message, `(code: ${e.code})`);
+    return { ok: false, error: e.message, code: e.code === 'user_cancelled' ? 'user_cancelled' : 'auth_error', technical: e.technical };
+  }
+  const msg = e instanceof Error ? e.message : '';
+  console.error(LOG, 'google auth technical detail:', msg);
+  return { ok: false, error: friendlyAuthMessage('unknown', msg), code: 'auth_error', technical: msg };
+}
+
+async function connectAccount(): Promise<{ ok: true; email: string | null; connection?: SpreadsheetConnection } | MsgResponse> {
   try {
-    const { code } = await launchChromeAuthFlow(true);
-    const connection = await exchangeCode(code);
+    const token = await getGoogleAuthToken(true);
+    // only the connection metadata is persisted — never the token itself
+    const email = await googleAccountEmail(token);
+    const connection = connectionFromSession({ email }) as SpreadsheetConnection;
     await saveConnection({ ...connection, spreadsheetId: '', spreadsheetName: '', worksheetName: '' });
-    return { ok: true, data: { email: connection.email ?? null, connection } };
+    console.info(LOG, `connected as ${email ?? 'unknown email'}`);
+    return { ok: true, data: { email: email ?? null, connection } };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Google sign-in failed.';
-    return { ok: false, error: msg, code: 'auth_error' };
+    if (e instanceof GoogleAuthError && e.code === 'not_configured') {
+      console.error(LOG, 'google auth technical detail: manifest oauth2.client_id is not configured (client id used would be unknown to Google)', e.message);
+      return { ok: false, error: e.message, code: 'not_configured', technical: e.technical };
+    }
+    return authFailure(e);
   }
 }
 
@@ -56,11 +74,11 @@ async function driverFor(): Promise<DriverResult> {
     return { error: 'No spreadsheet connected. Open the extension and connect Google Sheets first.', code: 'not_connected' };
   }
   try {
-    const fresh = await ensureFreshConnection(s.spreadsheet.connection);
-    await saveConnection(fresh);
+    // no stored token exists — the driver fetches tokens through
+    // chrome.identity (auto-refreshed by Chrome) on first use
     return {
-      driver: new GoogleSheetsDriver(fresh),
-      ctx: { spreadsheetId: fresh.spreadsheetId, worksheetName: fresh.worksheetName },
+      driver: new GoogleSheetsDriver(s.spreadsheet.connection),
+      ctx: { spreadsheetId: s.spreadsheet.connection.spreadsheetId, worksheetName: s.spreadsheet.connection.worksheetName },
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Spreadsheet connection failed.';
@@ -72,31 +90,16 @@ async function handle(msg: Msg): Promise<MsgResponse> {
   switch (msg.type) {
     case 'AUTH_STATUS': {
       const s = await loadSettings();
-      if (!s.spreadsheet.connection?.accessToken) return { ok: true, data: { signedIn: false } };
-      return { ok: true, data: { signedIn: true, email: s.spreadsheet.connection.email ?? null } };
+      return { ok: true, data: { signedIn: Boolean(s.spreadsheet.connection) } };
     }
     case 'AUTH_CONNECT': {
       return connectAccount();
     }
     case 'AUTH_LOGOUT': {
-      const s = await loadSettings();
-      s.spreadsheet.connection = null;
-      s.spreadsheet.connected = false;
-      await storage.set(LS.settings, s);
+      // disconnect ONLY Google: no orders/products/settings are touched
+      await saveConnection(null);
+      await clearCachedGoogleTokens(); // best-effort token cache cleanup
       return { ok: true, data: { ok: true } };
-    }
-    case 'AUTH_FLOW_RESULT': {
-      const { status, detail } = msg.payload;
-      if (status === 'success' && detail) {
-        try {
-          const connection = await exchangeCode(detail);
-          await saveConnection({ ...connection, spreadsheetId: '', spreadsheetName: '', worksheetName: '' });
-          return { ok: true, data: { email: connection.email ?? null } };
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : 'Google sign-in failed.', code: 'auth_error' };
-        }
-      }
-      return { ok: false, error: detail || 'Google sign-in was not completed.', code: 'user_cancelled' };
     }
     case 'CONNECTION_GET': {
       const s = await loadSettings();
@@ -122,14 +125,34 @@ async function handle(msg: Msg): Promise<MsgResponse> {
     case 'SHEET_LIST': {
       const d = await driverFor();
       if ('error' in d) return fail(d);
-      const list = await d.driver.listSpreadsheets();
-      return { ok: true, data: { spreadsheets: list.map((x) => ({ id: x.spreadsheetId, name: x.spreadsheetName })) } };
+      try {
+        const list = await d.driver.listSpreadsheets();
+        return { ok: true, data: { spreadsheets: list.map((x) => ({ id: x.spreadsheetId, name: x.spreadsheetName })) } };
+      } catch (e) {
+        if (e instanceof GoogleAuthError) return authFailure(e);
+        const err = e as { message?: string; status?: number; error?: { message?: string; code?: number } };
+        console.error(LOG, 'sheet list technical detail:', err.message);
+        if (err.error?.code === 401 || err.status === 401 || err.error?.code === 403 || err.status === 403) {
+          return { ok: false, error: 'Google connection expired. Please reconnect your Google Account.', code: 'auth_required', technical: err.message };
+        }
+        return { ok: false, error: 'Could not read your spreadsheets. Please try again.', code: 'drive_error', technical: err.message };
+      }
     }
     case 'WORKSHEET_LIST': {
       const d = await driverFor();
       if ('error' in d) return fail(d);
-      const names = await d.driver.listWorksheets(msg.payload.spreadsheetId);
-      return { ok: true, data: names };
+      try {
+        const names = await d.driver.listWorksheets(msg.payload.spreadsheetId);
+        return { ok: true, data: names };
+      } catch (e) {
+        if (e instanceof GoogleAuthError) return authFailure(e);
+        const err = e as { message?: string; status?: number };
+        console.error(LOG, 'worksheet list technical detail:', err.message);
+        if (err.status === 401 || err.status === 403) {
+          return { ok: false, error: 'Google connection expired. Please reconnect your Google Account.', code: 'auth_required', technical: err.message };
+        }
+        return { ok: false, error: 'Could not read the worksheets. Please try again.', code: 'sheets_error', technical: err.message };
+      }
     }
     case 'SHEET_OP': {
       const op = msg.payload;
@@ -152,10 +175,12 @@ async function handle(msg: Msg): Promise<MsgResponse> {
         }
         return { ok: false, error: 'Unknown spreadsheet operation.', code: 'bad_op' };
       } catch (e) {
+        if (e instanceof GoogleAuthError) return authFailure(e);
         const err = e as { message?: string; code?: string; status?: number; error?: { message?: string; code?: number } };
         const status = err.error?.code ?? err.status;
+        console.error(LOG, 'sheet op technical detail:', err.message);
         if (status === 401 || status === 403) {
-          return { ok: false, error: 'Google permission expired. Reconnect your account in Settings → Spreadsheet.', code: 'auth_required', technical: err.message };
+          return { ok: false, error: 'Google connection expired. Please reconnect your Google Account.', code: 'auth_required', technical: err.message };
         }
         if (status === 404) {
           return { ok: false, error: 'The spreadsheet or worksheet was not found. Check Settings → Spreadsheet.', code: 'not_found', technical: err.message };
@@ -201,7 +226,8 @@ async function handle(msg: Msg): Promise<MsgResponse> {
             order.syncedAt = Date.now();
             order.pendingSync = false;
             synced += 1;
-          } catch {
+          } catch (e) {
+            if (e instanceof GoogleAuthError) return authFailure(e);
             failed += 1;
             remaining.push(op);
           }
@@ -212,7 +238,9 @@ async function handle(msg: Msg): Promise<MsgResponse> {
         });
         return { ok: true, data: { synced, failed, remaining: remaining.length } };
       } catch (e) {
-        return { ok: false, error: 'Sync failed. ' + (e instanceof Error ? e.message : ''), code: 'sync_error' };
+        if (e instanceof GoogleAuthError) return authFailure(e);
+        console.error(LOG, 'sync technical detail:', e instanceof Error ? e.message : e);
+        return { ok: false, error: 'Sync failed. Please reconnect Google and try again.', code: 'sync_error', technical: e instanceof Error ? e.message : undefined };
       }
     }
     default: {
@@ -226,11 +254,24 @@ chrome.runtime.onMessage.addListener((message: Msg, _sender, sendResponse) => {
     .then(sendResponse)
     .catch((e) => {
       console.error(LOG, e);
-      sendResponse({ ok: false, error: e instanceof Error ? e.message : 'Unexpected error.', code: 'internal' });
+      sendResponse({ ok: false, error: 'Google connection could not be completed. Please reconnect your Google Account.', code: 'internal', technical: e instanceof Error ? e.message : undefined });
     });
   return true; // async response
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
-  console.info(LOG, 'installed', details.reason);
+  console.info(LOG, 'installed', details.reason, 'client configured:', isClientConfigured(), 'client:', oauthClientId() ? oauthClientId().slice(-12) : '(none)');
 });
+
+// token availability sanity check on startup when a connection exists
+// (silent; never prompts; only logs to the console)
+void (async () => {
+  try {
+    const s = await loadSettings();
+    if (s.spreadsheet?.connected && !s.demoMode) {
+      await getGoogleAuthToken(false);
+    }
+  } catch {
+    /* no cached grant — user reconnects from Settings when they want to */
+  }
+})();

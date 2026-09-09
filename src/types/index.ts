@@ -341,14 +341,6 @@ export interface Toast {
   actions?: { label: string; kind?: 'primary' | 'secondary' | 'danger'; onClick: () => void }[];
 }
 
-export interface AuthState {
-  status: 'signedOut' | 'connecting' | 'signedIn' | 'error';
-  email: string | null;
-  error: string | null;
-  consent: string | null;
-  tokenExpiresAt: number | null;
-}
-
 export type SaveResult =
   | { ok: true; created: 'new' | 'duplicate'; order: Order; synced: boolean; row?: number }
   | { ok: false; error: string; technical?: string; code?: string };

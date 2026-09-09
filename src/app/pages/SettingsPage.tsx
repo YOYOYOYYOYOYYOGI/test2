@@ -8,6 +8,7 @@ import { LABEL_SIZES, ORDER_STATUSES, PAYMENT_STATUSES, demoOrders, formatDate }
 import { Badge, Button, Card, Checkbox, ConfirmDialog, Field, Input, Select, TextArea, Toggle, downloadFile } from '../../components/ui';
 import { IconDownload, IconUpload, IconLink } from '../../components/icons';
 import { LS, storage, inExtension } from '../../services/storage';
+import { isClientConfigured } from '../../services/google/oauth';
 import { backupFileName, buildFullBackup, parseBackupFile, restoreBackup, type BackupFile } from '../../services/backup';
 import { bgAuthConnect, bgSyncPendingOrders, bgListSpreadsheets, bgListWorksheets } from '../../services/messaging';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
@@ -165,8 +166,33 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
   const [worksheets, setWorksheets] = useState<string[] | null>(null);
   const [sheetId, setSheetId] = useState('');
   const [worksheet, setWorksheet] = useState('');
+  const [showOauthHelp, setShowOauthHelp] = useState(false);
 
   const conn = settings.spreadsheet.connection;
+  const extId = typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : '';
+  const clientId = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
+    ? (() => { try { return ((chrome.runtime.getManifest() as { oauth2?: { client_id?: string } }).oauth2?.client_id ?? '').trim(); } catch { return ''; } })()
+    : '';
+  const clientReady = isClientConfigured();
+
+  /** Open the spreadsheet picker (also auto-runs right after connecting). */
+  const pickSpreadsheet = async () => {
+    setBusy(true);
+    try {
+      const list = await bgListSpreadsheets();
+      setSheetList(list);
+      if (list.length > 0) {
+        setSheetId(list[0].id);
+        try { const w = await bgListWorksheets(list[0].id); setWorksheets(w); setWorksheet(w[0] ?? ''); } catch { /* ignore */ }
+      } else {
+        setSheetList([]);
+        toast('info', 'No spreadsheets found', { message: 'Create a spreadsheet in Google Sheets first, then press “Change spreadsheet…” again.' });
+      }
+    } catch (e) {
+      console.error('[spreadsheet] technical detail:', (e as { technical?: string; message?: string }).technical ?? (e instanceof Error ? e.message : e));
+      toast('error', 'Could not read your spreadsheets', { message: e instanceof Error ? e.message : 'Please try again.', actions: [{ label: 'Try Again', onClick: () => void pickSpreadsheet() }] });
+    } finally { setBusy(false); }
+  };
 
   const connect = async () => {
     if (!inExtension()) { toast('error', 'Google sign-in requires the Chrome extension', { message: 'Load the built extension in Chrome (see README) — or enable Demo Mode below.' }); return; }
@@ -174,11 +200,24 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
     try {
       const res = await bgAuthConnect();
       if (res && typeof res === 'object' && 'email' in res) {
-        toast('success', 'Google account connected');
+        toast('success', 'Google Account Connected', { message: (res.email ? `Signed in as ${res.email}. ` : '') + 'Now choose the spreadsheet for orders.' });
         await store.refreshConfig();
+        await pickSpreadsheet(); // next step of the flow — select the spreadsheet
       }
     } catch (e) {
-      toast('error', 'Connection failed', { message: e instanceof Error ? e.message : undefined });
+      const err = e as { code?: string; technical?: string; message?: string };
+      console.error('[spreadsheet] auth technical detail:', err.technical ?? (e instanceof Error ? e.message : e));
+      if (err.code === 'not_configured') {
+        toast('error', 'Google OAuth is not configured yet', {
+          message: 'Open “Google OAuth setup” below and paste your OAuth Client ID (one-time, ~2 minutes).',
+          actions: [{ label: 'Show Setup', onClick: () => setShowOauthHelp(true) }],
+        });
+      } else {
+        toast('error', 'Google connection could not be completed. Please reconnect your Google Account.', {
+          message: e instanceof Error ? e.message : undefined,
+          actions: [{ label: 'Try Again', onClick: () => void connect() }],
+        });
+      }
     } finally { setBusy(false); }
   };
 
@@ -188,7 +227,11 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
       const { bgAuthLogout } = await import('../../services/messaging');
       await bgAuthLogout();
       await store.refreshConfig();
-      toast('info', 'Spreadsheet disconnected', { message: 'Orders will keep saving locally until you reconnect.' });
+      setSheetList(null);
+      toast('info', 'Google Account disconnected', { message: 'Only the Google connection was removed — orders, products, fields, old data, labels, rules and settings are untouched. Orders save locally until you reconnect.' });
+    } catch (e) {
+      console.error('[spreadsheet] disconnect technical detail:', e);
+      toast('error', 'Could not disconnect', { message: e instanceof Error ? e.message : undefined });
     } finally { setBusy(false); setConfirmDisconnect(false); }
   };
 
@@ -201,7 +244,7 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
       await bgSaveConnection({ spreadsheetId: sheetId, spreadsheetName: meta?.name ?? 'Spreadsheet', worksheetName: worksheet });
       await store.refreshConfig();
       setSheetList(null); setWorksheets(null);
-      toast('success', 'Spreadsheet updated');
+      toast('success', `Connected to: ${meta?.name ?? 'Spreadsheet'}`, { message: `Spreadsheet ID ${sheetId} saved — new orders are appended there.` });
     } catch (e) {
       toast('error', 'Update failed', { message: e instanceof Error ? e.message : undefined });
     } finally { setBusy(false); }
@@ -217,7 +260,7 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
 
   return (
     <div style={{ maxWidth: 760 }} className="col">
-      <Card title="Connection" actions={!demo ? <Badge color="green">Connected</Badge> : <Badge color="amber">Demo mode</Badge>}>
+      <Card title="Connection" actions={demo ? <Badge color="amber">Demo mode</Badge> : conn ? <Badge color="green">Google Account Connected</Badge> : <Badge color="red">Not Connected</Badge>}>
         <div className="card-pad col" style={{ gap: 10 }}>
           {demo && (
             <div className="col" style={{ background: 'var(--warning-soft)', borderRadius: 10, padding: 12 }}>
@@ -228,8 +271,8 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
           )}
           {!demo && !conn && (
             <div className="col" style={{ gap: 8 }}>
-              <p>Connect your Google account to store orders in Google Sheets. The extension asks only for its own tokens — no passwords are stored, and nothing is sent to any third party.</p>
-              <Button variant="secondary" style={{ alignSelf: 'flex-start' }} onClick={connect} disabled={busy}>{busy ? <span className="spinner" /> : 'Connect Google Account'}</Button>
+              <p>Connect your Google account to store orders in Google Sheets. The extension uses Chrome&rsquo;s official Google sign-in and keeps no password or token itself. Your account is picked in the Google window that opens.</p>
+              <Button variant="secondary" style={{ alignSelf: 'flex-start' }} onClick={() => void connect()} disabled={busy}>{busy ? <span className="spinner" /> : 'Connect Google Account'}</Button>
               <Button variant="outline" style={{ alignSelf: 'flex-start' }} onClick={() => void toggleDemo(true)}>or use Demo Mode</Button>
             </div>
           )}
@@ -240,6 +283,12 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
                 <Field label="Spreadsheet"><Input value={conn.spreadsheetName || '(pick below)'} disabled style={{ width: 280 }} /></Field>
                 <Field label="Worksheet"><Input value={conn.worksheetName || 'Orders'} disabled style={{ width: 160 }} /></Field>
               </div>
+              {conn.spreadsheetName && (
+                <p className="hint" style={{ margin: 0 }}>
+                  Connected to: <b>{conn.spreadsheetName}</b>{' '}
+                  <span className="mono muted">({conn.spreadsheetId})</span>
+                </p>
+              )}
               {conn.spreadsheetId && (
                 <div className="row">
                   <Button size="sm" variant="outline" icon={<IconLink width={13} />}
@@ -249,16 +298,8 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
                 </div>
               )}
               <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <Button size="sm" variant="outline" onClick={() => void (async () => {
-                  setBusy(true);
-                  try {
-                    const list = await bgListSpreadsheets();
-                    setSheetList(list);
-                    if (list[0]) { setSheetId(list[0].id); const w = await bgListWorksheets(list[0].id); setWorksheets(w); setWorksheet(w[0] ?? ''); }
-                  } catch (e) {
-                    toast('error', 'Could not read your spreadsheets', { message: e instanceof Error ? e.message : undefined });
-                  } finally { setBusy(false); }
-                })()}>{busy ? <span className="spinner" /> : 'Change spreadsheet…'}</Button>
+                <Button size="sm" variant="outline" onClick={() => void pickSpreadsheet()} disabled={busy}>{busy ? <span className="spinner" /> : 'Change Spreadsheet'}</Button>
+                <Button size="sm" variant="ghost" title="If Google says the connection expired, press this to sign in again (orders and data are not touched)" onClick={() => void connect()} disabled={busy}>Reconnect Google</Button>
                 <Button size="sm" variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDisconnect(true)}>Disconnect</Button>
               </div>
               {sheetList && (
@@ -282,13 +323,44 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
           <p className="hint">Rows are written only by this extension. If you already have a spreadsheet with data, its columns are detected and reused — the first row is treated as the header row.</p>
         </div>
       </Card>
-      <ConfirmDialog open={confirmDisconnect} title="Disconnect Google Sheets?"
-        message="Existing rows in the spreadsheet are kept. New orders will be stored locally until you reconnect."
-        confirmLabel="Disconnect" danger busy={busy} onConfirm={() => void disconnect()} onCancel={() => setConfirmDisconnect(false)} />
+
+      {/* One-time Google OAuth setup — shows the exact values the Google Cloud
+          project must match (extension ID + client id from the manifest). */}
+      <Card title="Google OAuth setup" actions={clientReady ? <Badge color="green">Client ID set</Badge> : <Badge color="red">Needs setup</Badge>}>
+        <div className="card-pad col" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Field label="Your extension ID" hint="shown in chrome://extensions and used as the Item ID in Google Cloud">
+              <Input value={extId || 'load the extension to see it'} disabled className="mono" style={{ width: 320 }} />
+            </Field>
+            <Field label="OAuth client ID (manifest.json → oauth2 → client_id)" hint="the only place the client id is configured — no code edits needed, then reload the extension">
+              <Input value={clientId} disabled className="mono" style={{ width: 420 }} />
+            </Field>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <Button size="sm" variant="outline" onClick={() => setShowOauthHelp(!showOauthHelp)}>{showOauthHelp ? 'Hide instructions' : 'Show setup instructions'}</Button>
+            {!clientReady && clientId && (
+              <span className="hint" style={{ alignSelf: 'center' }}>“{clientId.slice(0, 30)}…” does not look like a real Client ID (ends with .apps.googleusercontent.com).</span>
+            )}
+          </div>
+          {showOauthHelp && (
+            <ol style={{ fontSize: 12.5, lineHeight: 1.7, paddingLeft: 20, margin: 0, color: 'var(--text)' }}>
+              <li>Open <a href="https://console.cloud.google.com/apis" target="_blank" rel="noreferrer">Google Cloud Console → APIs &amp; Services</a> and pick/create your project.</li>
+              <li>Enable <b>Google Sheets API</b> and <b>Google Drive API</b> (Library → search each → Enable).</li>
+              <li>Open <b>Google Auth → Clients</b>, press <b>Create Client</b>, application type <b>Chrome Extension</b>.</li>
+              <li>Paste your <b>extension ID</b> (the value above / chrome://extensions) into the <b>Item ID</b> field and create the client.</li>
+              <li>Copy the generated <b>Client ID</b> and paste it into <span className="mono">manifest.json → "oauth2" → "client_id"</span> in the extension folder (the single configuration spot).</li>
+              <li>Click <b>Reload</b> on chrome://extensions, come back here and press <b>Connect Google Account</b>.</li>
+            </ol>
+          )}
+          {clientReady && <p className="hint" style={{ margin: 0 }}>Client ID is configured — “Connect Google Account” will open Google&rsquo;s official sign-in for this extension.</p>}
+        </div>
+      </Card>
+      <ConfirmDialog open={confirmDisconnect} title="Disconnect Google Sheets?" danger busy={busy}
+        message="Only the Google connection is removed — orders, products, fields, historical data, labels, rules and settings all stay on this computer. Existing rows in the spreadsheet are kept; new orders are stored locally until you reconnect."
+        confirmLabel="Disconnect" onConfirm={() => void disconnect()} onCancel={() => setConfirmDisconnect(false)} />
     </div>
   );
 }
-
 // ---------------------------------------------------------------------------
 function OrderTab() {
   const store = useAppStore();

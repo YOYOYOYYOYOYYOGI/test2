@@ -14,7 +14,6 @@ export type Msg =
   | { type: 'AUTH_STATUS' }
   | { type: 'AUTH_CONNECT' }
   | { type: 'AUTH_LOGOUT' }
-  | { type: 'AUTH_FLOW_RESULT'; payload: { status: string; detail: string } }
   | { type: 'CONNECTION_GET' }
   | { type: 'CONNECTION_SAVE'; payload: { spreadsheetId: string; spreadsheetName: string; worksheetName: string } }
   | { type: 'SHEET_LIST' }

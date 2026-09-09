@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
-const required = ['manifest.json', 'background.js', 'index.html', 'popup.html', 'print.html', 'assets', 'icons/icon16.png', 'icons/icon48.png', 'icons/icon128.png', 'auth-redirect.html'];
+const required = ['manifest.json', 'background.js', 'index.html', 'popup.html', 'print.html', 'assets', 'icons/icon16.png', 'icons/icon48.png', 'icons/icon128.png'];
 
 for (const f of required) {
   if (!existsSync(join(dist, f))) {

@@ -101,7 +101,6 @@ dist/
   index.html      (full app)
   popup.html      (quick popup)
   print.html      (print jobs)
-  auth-redirect.html
   icons/icon16|32|48|128.png
   assets/…
 ```
@@ -113,40 +112,42 @@ Load `dist/` in Chrome as described above. A ready-to-share ZIP is written to
 
 ## 4. Google Sheets setup (one time, ~10 minutes)
 
-Full illustrated walk-through: **[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md)**
+Step-by-step guide: **[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md)** — the
+in-app helper at **Settings → Spreadsheet → “Google OAuth setup”** shows your
+exact extension ID and the current client-id status.
 
 Summary:
 
-1. Go to https://console.cloud.google.com → create/select a project.
-2. **APIs & Services → Enable**: `Google Sheets API` and `Google Drive API`.
-3. **OAuth consent screen** → External → add your email as a test user.
-   Scopes requested by this extension:
-   - `https://www.googleapis.com/auth/spreadsheets` (read & write order rows)
-   - `https://www.googleapis.com/auth/drive.readonly` (list your spreadsheets)
-4. **Credentials → Create OAuth Client ID** → type **Chrome Extension**.
-5. **Item ID** = the ID of your loaded extension (find it on
-   `chrome://extensions` → *Details*, e.g. `abcdefghijklmnopqrstuvwxyzabcdef`).
-6. Authorized redirect URI:
-   `https://<YOUR-EXTENSION-ID>.chromiumapp.org/google-sheets`
-7. Copy the **Client ID** into `src/services/google/oauth.ts`
-   (`oauthClientId()`) — or set `VITE_GOOGLE_CLIENT_ID` when building.
+1. Load the extension, copy its **ID** (`chrome://extensions` → Details, or
+   the OAuth setup box). The ID is pinned by the `"key"` in `manifest.json`,
+   so it never changes between rebuilds, folders or computers.
+2. https://console.cloud.google.com → create/select a project and enable
+   **Google Sheets API** and **Google Drive API**; finish the OAuth consent
+   screen (add your email as a test user).
+3. **Credentials → Create OAuth Client ID** → application type
+   **Chrome Extension** → **Item ID** = your extension ID → Create.
+4. Copy the generated **Client ID** and paste it into the ONE central
+   configuration spot: `manifest.json` → `"oauth2"` → `"client_id"` in the
+   extension folder, then press **Reload** on `chrome://extensions`
+   (no rebuild, no code edits).
+5. **Settings → Spreadsheet → Connect Google Account** → pick your account →
+   **Google Account Connected** → choose spreadsheet + worksheet.
 
-> ⚠️ The extension ships with a **sample/demo client ID** so the code is
-> self-contained. Google will reject sign-in attempts with that demo ID until
-> you configure your own. Demo Mode does not need Google at all.
->
-> If you change the extension ID later, update the OAuth client's Item ID and
-> redirect URI, then rebuild.
+Scopes requested (only what the extension uses):
+- `spreadsheets` — read/write the selected spreadsheet
+- `drive.readonly` — list spreadsheets to pick one
+- `userinfo.email` — show which account is connected
 
-### Why no client secret?
+### Why no client secret, and where do tokens live?
 
-The extension uses the *public* OAuth client flow with Chrome's
-`chrome.identity.launchWebAuthFlow`. The “secret” for that flow is the
-extension ID, embedded in the fixed redirect URI
-`https://<extension-id>.chromiumapp.org/…`. The token exchange happens from the
-extension's own origin, and access/refresh tokens live only in
-`chrome.storage.local`. Nothing is hard-coded into the front-end except the
-public client ID.
+Authentication goes through Chrome's official extension mechanism
+(`chrome.identity.getAuthToken` with the manifest `"oauth2"` section).
+Chrome holds the access token in its own identity cache and **refreshes it
+automatically**, so the extension never stores tokens (no `client_secret`, no
+refresh tokens, nothing sensitive persisted). Expired or revoked connections
+surface as “Google connection expired. Please reconnect your Google Account.”
+— reconnect once from Settings → Spreadsheet; orders stay safe locally and
+sync afterwards. Disconnect removes only the Google connection.
 
 ---
 
@@ -157,9 +158,9 @@ The manifest asks for the **minimum** permissions:
 | Permission | Why |
 | --- | --- |
 | `storage` | local cache/offline queue + settings |
-| `identity` | Google OAuth sign-in |
+| `identity` | Google OAuth sign-in (`chrome.identity` manages the consent window and token cache) |
 | `unlimitedStorage` | grow the local order cache beyond Chrome's 10 MB default |
-| host: `accounts.google.com`, `www.googleapis.com`, `*.chromiumapp.org` | OAuth + Sheets API calls |
+| host: `www.googleapis.com`, `oauth2.googleapis.com` | Sheets/Drive API calls + account-email lookup |
 
 No content scripts, no access to your WhatsApp web page, no tracking, no
 third-party servers. Spreadsheet data goes directly between your computer and
@@ -327,11 +328,14 @@ After enabling products Night Cream & Face Serum + saving orders:
 
 ## 8. Troubleshooting
 
-- **“Google sign-in was cancelled / no response”** → check
-  chrome://extensions → your extension → *Errors*; confirm the OAuth client
-  Item ID + redirect URI exactly match your extension ID (see §4).
-- **403/401 on save** → token expired or scope missing → click **Settings →
-  Spreadsheet → Disconnect**, then Connect again (grants refresh token).
+- **“Google OAuth is not configured yet”** → the Client ID is still the
+  placeholder in `manifest.json → "oauth2" → "client_id"`. Do the one-time
+  console setup (§4 / docs/GOOGLE_SETUP.md) and paste your Client ID there,
+  then reload the extension.
+- **“Google connection expired. Please reconnect…”** → the grant was revoked
+  or Chrome cannot refresh it silently → **Settings → Spreadsheet →
+  Connect Google Account** again (orders saved meanwhile are kept locally and
+  sync after reconnecting).
 - **“Spreadsheet not found”** → the file was renamed/moved to a different
   Drive, or you don't have edit rights. Choose the file again.
 - **Print sizes look off** → in the print dialog choose *Actual size / 100%*,
@@ -347,7 +351,7 @@ After enabling products Night Cream & Face Serum + saving orders:
 
 | Feature | Required | Where |
 | --- | --- | --- |
-| Google Sheets sync | your own Google Cloud OAuth Client ID (Chrome Extension type) | `oauth.ts` / `VITE_GOOGLE_CLIENT_ID` |
+| Google Sheets sync | your own Google Cloud OAuth Client ID (Chrome Extension type, Item ID = this extension's pinned ID) | `manifest.json` → `oauth2` → `client_id` (single spot) |
 | Chrome Web Store publishing | developer account ($5 once) | store listing |
 | Everything else (incl. Demo Mode) | none | — |
 

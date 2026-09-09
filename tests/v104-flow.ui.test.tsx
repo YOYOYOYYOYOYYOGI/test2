@@ -58,11 +58,15 @@ describe('v1.0.4: filters → filtered excel (Orders page)', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => undefined });
 
     const now = Date.now();
-    const day = 86400_000;
+    // calendar-based fixture times so the filters are correct at ANY time of
+    // day (a "now - 29h" order is only "yesterday" after ~05:00)
+    const startToday = new Date();
+    startToday.setHours(0, 0, 0, 0);
+    const t0 = startToday.getTime();
     const orders = [
-      mkOrder('o1', 'ORD-1001', { createdAt: now - 1 * 3600_000 }), // today, Paid UPI
-      mkOrder('o2', 'ORD-1002', { createdAt: now - day - 5 * 3600_000, paymentStatus: 'COD', paymentMethod: 'COD', orderStatus: 'Delivered', customer: { ...mkOrder('o2', 'ORD-1002').customer, name: 'Priya Shah' } }), // yesterday COD Delivered
-      mkOrder('o3', 'ORD-1003', { createdAt: now - 3 * day }), // 3 days ago
+      mkOrder('o1', 'ORD-1001', { createdAt: t0 + 6 * 3600_000 }), // today, Paid UPI
+      mkOrder('o2', 'ORD-1002', { createdAt: t0 - 1 * 3600_000, paymentStatus: 'COD', paymentMethod: 'COD', orderStatus: 'Delivered', customer: { ...mkOrder('o2', 'ORD-1002').customer, name: 'Priya Shah' } }), // yesterday COD Delivered
+      mkOrder('o3', 'ORD-1003', { createdAt: t0 - 3 * 86400_000 }), // 3 days ago
     ];
     const { settings, fields } = makeDefaultSettingsWithTemplate();
     await storage.setMany({ [LS.settings]: settings, [LS.fields]: fields, [LS.products]: DEFAULT_DEMO_PRODUCTS, [LS.orders]: orders, [LS.nextOrderNumber]: 1004, [LS.setupDone]: true });

@@ -1,105 +1,111 @@
 # Connecting this extension to Google Sheets (step by step)
 
-Time: ~10 minutes. You need a Google account (free) and Chrome.
+Time: ~10 minutes, once. You need a Google account (free) and Chrome.
 
-## 1. Create a Google Cloud project
+The extension authenticates with Google through Chrome's official extension
+flow (`chrome.identity`). For that to work, Google must know an **OAuth
+Client ID of type “Chrome Extension”** whose **Item ID is the extension ID**
+of *this* extension. The extension ID is stable — it is pinned by the
+`"key"` in `manifest.json`, so it is the same on every computer and never
+changes when you re-install from a ZIP.
+
+## 1. Load the extension first and note its ID
+
+1. Unzip the extension, then in Chrome go to `chrome://extensions`,
+   enable **Developer mode** (top right) and press **Load unpacked**.
+2. Select the unzipped folder.
+3. On the *Order Label Manager* card press **Details** — the **ID** is the
+   32-character string under the extension name
+   (e.g. `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`). You can also read it inside the
+   extension: **Settings → Spreadsheet → “Google OAuth setup”**.
+   If you installed an older version of the extension before, remove it first
+   and **restore your backup** after loading the new version (see below).
+
+> ⚠️ v1.0.9 pins a stable extension ID for the first time. If you are
+> updating from v1.0.8 or older, the ID changes — export a **Full Backup**
+> (Settings → Backup & Restore) *before* removing the old version, then
+> restore it after loading v1.0.9. Old versions without the pinned key could
+> silently get a *different* ID per install folder/computer, which is exactly
+> why Google kept rejecting the old OAuth client.
+
+## 2. Create a Google Cloud project + enable the APIs
 
 1. Open <https://console.cloud.google.com> and sign in.
 2. Click the project dropdown (top-left) → **New Project** →
-   name it e.g. `order-label-manager` → **Create**.
-3. Keep the new project selected.
+   name it e.g. `order-label-manager` → **Create**, keep it selected.
+3. Menu ☰ → **APIs & Services** → **Library**:
+   - search **Google Sheets API** → open → **Enable**
+   - search **Google Drive API** → open → **Enable**
+4. Menu ☰ → **APIs & Services** → **OAuth consent screen**:
+   - User type **External**, fill app name + your email, Save.
+   - (Optional, recommended while testing) **Audience → Test users →
+     Add users** → add your own Google account.
 
-## 2. Enable the APIs
-
-1. Menu ☰ → **APIs & Services** → **Library**.
-2. Search **Google Sheets API** → open → **Enable**.
-3. Search **Google Drive API** → open → **Enable**.
-
-## 3. OAuth consent screen
-
-1. Menu ☰ → **APIs & Services** → **OAuth consent screen**.
-2. User type: **External** → Create.
-3. Fill in the app name (e.g. `Order Label Manager`) and your email.
-   Add `https://docs.google.com` if asked for an authorized domain (not
-   required for the redirect used here).
-4. Save.
-5. Optional but recommended: **Audience → Test users → Add users** — add your
-   own Google account while testing (otherwise you'll see “app not verified”).
-
-## 4. Create the OAuth Client ID (Chrome Extension type)
+## 3. Create the OAuth Client ID (Chrome Extension type)
 
 1. Menu ☰ → **APIs & Services** → **Credentials** → **Create Credentials** →
    **OAuth client ID**.
 2. Application type: **Chrome Extension**.
-3. **Item ID**: the ID of your loaded extension.
-   Find it at `chrome://extensions` → enable **Developer mode** → click
-   **Details** on *Order Label Manager* → the ID is shown under the name
-   (a 32-character string like `abcdefghijklmnopqrstuvwxyzabcdef`).
-4. For the redirect URI, Google may show:
-   `https://<item-id>.chromiumapp.org/<path>` — set the **path** to
-   `google-sheets`, i.e. the full URI is
-   `https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/google-sheets`
-5. **Create** and copy the **Client ID** (ends in
-   `.apps.googleusercontent.com`).
+3. **Item ID**: paste the extension ID from step 1.
+   (Chrome Extension clients use the extension ID itself — no redirect URIs
+   need to be added.)
+4. **Create** — copy the generated **Client ID** (it ends in
+   `.apps.googleusercontent.com`). This is the only value the extension needs
+   from Google.
 
-> If the extension is re-loaded under a different ID later (e.g. you install
-> it from a new ZIP on another machine), repeat this step with the new ID.
-> Every installed copy of an unpacked extension can have a *different* ID.
+## 4. Put the Client ID into the extension (one central spot)
 
-## 5. Put the Client ID in the extension
+The client ID is read from exactly one place:
+`manifest.json` → `"oauth2"` → `"client_id"` in the extension folder.
 
-Open `src/services/google/oauth.ts` and replace the demo value in
-`oauthClientId()` with yours:
+1. Open the unzipped extension folder and edit `manifest.json` with any text
+   editor (Notepad is fine).
+2. Replace this line:
 
-```ts
-export function oauthClientId(): string {
-  return (
-    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-    'REPLACE_WITH_YOUR_CLIENT_ID.apps.googleusercontent.com'
-  );
-}
-```
+   ```json
+   "client_id": "PASTE_YOUR_GOOGLE_CLIENT_ID_HERE",
+   ```
 
-Or build with your ID without editing code:
+   with your real Client ID, e.g.:
 
-```bash
-VITE_GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com npm run build
-```
+   ```json
+   "client_id": "123456789012-abcdefghijklmnopqrstuvwxyz.apps.googleusercontent.com",
+   ```
 
-Then rebuild and re-`Load unpacked` the `dist/` folder.
+3. Save the file, then press the **Reload** button of the extension on
+   `chrome://extensions`.
+4. No rebuild or code edit is needed — `manifest.json` is the single
+   configuration spot (Settings → Spreadsheet → “Google OAuth setup” shows
+   the value it currently reads).
 
-## 6. Connect inside the extension
+> Developers can also bake the ID at build time. The build reads the
+> `"oauth2"` block from `public/manifest.json`, so edit that file (or have CI
+> rewrite it) before `npm run build && npm run package`.
 
-1. Open the extension → **Settings → Spreadsheet → Connect Google Account**.
-2. Google shows the consent screen with the two scopes. Accept.
-3. Choose **Spreadsheet** and **Worksheet** (tab). Create a brand-new blank
-   spreadsheet if you want the extension to build the columns for you.
-4. Done — the first save (or “Sync columns now” on Fields & Columns) writes
-   the headers.
+## 5. Connect inside the extension
 
-## 7. Existing spreadsheet?
+1. Open the extension → **Settings → Spreadsheet** → status shows
+   **Not Connected** → press **Connect Google Account**.
+2. Chrome opens Google's official sign-in. Pick the account, review the
+   requested permissions (spreadsheets, drive-readonly to list your
+   spreadsheets, your email address) and accept.
+3. The tab shows **Google Account Connected** and the spreadsheet list opens
+   automatically → choose your spreadsheet (and worksheet), press
+   **Use this spreadsheet**.
+4. Done. New orders are appended as new rows; editing an order updates its
+   own row. If you pick an existing spreadsheet its columns are reused — only
+   missing columns are added, nothing is deleted.
 
-It works. Connect it, then open **Fields & Columns**:
+## 6. Everyday notes
 
-- existing headers are read from row 1 and shown,
-- use **Auto Map** to match your fields to existing columns,
-- only genuinely missing columns are added (at the end),
-- data rows are never touched.
-
-## Scope / data notes
-
-The extension requests:
-
-- `.../auth/spreadsheets` — read & append/update rows in the spreadsheets you
-  choose,
-- `.../auth/drive.readonly` — to list spreadsheet files so you can pick one.
-
-It never reads other Drive files, never asks for Gmail/contacts/WhatsApp data,
-and never sends your tokens anywhere except Google's token endpoint.
-Tokens are stored in Chrome's own extension storage on your computer.
-
-## Removing access later
-
-- Inside the extension: Settings → Spreadsheet → Disconnect.
-- Or revoke at <https://myaccount.google.com/permissions> (search
-  “Order Label Manager”).
+- **Tokens**: the extension stores **no tokens**. Chrome itself holds the
+  access token and refreshes it automatically, so connections keep working
+  across days and Chrome restarts without any re-login.
+- **Connection expired**: if Google revokes the connection you will see
+  “Google connection expired. Please reconnect your Google Account.” —
+  reconnect once from Settings → Spreadsheet.
+- **Disconnect** removes only the Google connection. Orders, products,
+  custom fields, old customer data, labels, rules and settings are untouched.
+- **Demo Mode** keeps working without Google (local sample sheet).
+- Your spreadsheet itself is the primary copy of order rows; the extension
+  keeps a local cache so it can work offline and sync later.

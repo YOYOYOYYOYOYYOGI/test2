@@ -7,6 +7,7 @@ import { computeTotal } from '../lib/format';
 import { LS, storage } from './storage';
 import { engineForSettings } from './sync';
 import { SpreadsheetEngine, SpreadsheetError, friendlySheetsError } from './spreadsheet/engine';
+import { GoogleAuthError } from './google/oauth';
 import { defaultSettings } from '../lib/constants';
 
 export interface OrderInput {
@@ -196,6 +197,13 @@ export async function createOrder(
     await persistOrders(orders.map((o) => (o.id === order.id ? order : o)));
     return { ok: true, order, synced: true, spreadsheetRow: row };
   } catch (e) {
+    if (e instanceof GoogleAuthError) {
+      // Google grant expired/revoked — keep the order local and queue it
+      order.pendingSync = true;
+      await persistOrders(orders.map((o) => (o.id === order.id ? order : o)));
+      await enqueuePending({ action: 'append', orderId: order.id, ts: Date.now() });
+      return { ok: true, order, synced: false, code: 'pending', error: 'Google connection expired — order saved locally. Reconnect Google in Settings → Spreadsheet, then press “Sync pending orders”.' };
+    }
     const se = e instanceof SpreadsheetError ? e : friendlySheetsError(e);
     if (se.code === 'network' || se.code === 'spreadsheet_error' || se.code === 'rate_limit' || se.code === 'not_connected') {
       // offline resilience: keep the order locally and queue it for sync
@@ -270,11 +278,14 @@ export async function updateOrder(
     await persistOrders(all);
     return { ok: true, order: merged, synced: true, spreadsheetRow: merged.spreadsheetRow };
   } catch (e) {
-    const se = e instanceof SpreadsheetError ? e : friendlySheetsError(e);
+    const authExpired = e instanceof GoogleAuthError;
     merged.pendingSync = true;
     await persistOrders(all);
     await enqueuePending({ action: 'update', orderId: merged.id, ts: Date.now() });
-    return { ok: true, order: merged, synced: false, error: 'Saved locally. Spreadsheet update is queued and will sync automatically.', code: 'pending' };
+    const message = authExpired
+      ? 'Google connection expired — changes saved locally. Reconnect Google in Settings → Spreadsheet, then press “Sync pending orders”.'
+      : 'Saved locally. Spreadsheet update is queued and will sync automatically.';
+    return { ok: true, order: merged, synced: false, error: message, code: 'pending' };
   }
 }
 

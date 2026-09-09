@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Order Label Manager \u2014 WhatsApp Orders to Sheets & Labels",
   "short_name": "Order Label Mgr",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Turn WhatsApp orders into spreadsheet rows and printable shipping labels. Works with Google Sheets.",
   "icons": {
     "16": "icons/icon16.png",
@@ -29,14 +29,12 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "https://accounts.google.com/*",
     "https://www.googleapis.com/*",
-    "https://*.chromiumapp.org/*"
+    "https://oauth2.googleapis.com/*"
   ],
   "web_accessible_resources": [
     {
       "resources": [
-        "auth-redirect.html",
         "icons/*"
       ],
       "matches": [
@@ -48,5 +46,14 @@
     "page": "index.html",
     "open_in_tab": true
   },
-  "version_name": "1.0.8"
+  "version_name": "1.0.9",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv2T2Z96P6HVcl+6tZAi+SQHwMeoOiAlxVLd1HhJx9aGpOUIXzW/4IhO8pPOfOhdFO3FpjkGoxikpAoMf/6sQ5dfLbyPnd2043cbI2bjZvNehTH38QvCOSeYa3FHnNLHf0rgf5GFJh4CNQK05rUegVslfNfOGHQlizvZRa5mGQ9AcD3csYfHhOwAeGH2lMkWuRh1S8x1SLO2/qAIRf8MhnL7Cr8FwA7FXpa1+ks4WTjN49ipwTAeQbWGD32gCd6g0pn1cbKGpjnb1MSPoTRkgrrQVh9CyH5KMCOKQlKr3QoiiEySRc/bPUSzXa4/2Flk3yhSdiVwsb4kZpug6aXyKeQIDAQAB",
+  "oauth2": {
+    "client_id": "PASTE_YOUR_GOOGLE_CLIENT_ID_HERE",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/userinfo.email"
+    ]
+  }
 }

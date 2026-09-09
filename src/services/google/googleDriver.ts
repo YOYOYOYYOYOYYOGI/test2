@@ -1,8 +1,14 @@
 // ---------------------------------------------------------------------------
 // Google Sheets API driver (v4) — fetches JSON, no SDK needed, works in the
 // MV3 service worker and in pages with a valid access token.
+//
+// Tokens: the driver asks Chrome's identity API (chrome.identity.getAuthToken
+// using the manifest "oauth2" client) for every fresh session. Chrome caches
+// the token and refreshes it automatically — the extension never stores
+// tokens. When a request fails with 401 (revoked/expired), the cached token
+// is dropped and one silent re-auth is attempted before failing.
 // ---------------------------------------------------------------------------
-import { ensureFreshConnection } from './oauth';
+import { getGoogleAuthToken, GoogleAuthError } from './oauth';
 import type { SpreadsheetConnection } from '../../types';
 import type {
   AppendResult,
@@ -37,38 +43,70 @@ export function sheetRange(sheet: string, a1: string): string {
 export class GoogleSheetsDriver implements DriverLike {
   readonly kind = 'google' as const;
   private connection: SpreadsheetConnection;
+  /** token for this driver session (Chrome identity cache is the source) */
+  private cachedToken: string | null = null;
 
   constructor(connection: SpreadsheetConnection) {
     this.connection = connection;
   }
 
+  /** Fresh token via chrome.identity — silent (no consent UI). Throws a
+   *  GoogleAuthError with a friendly message when no valid grant exists. */
+  private async fetchToken(): Promise<string> {
+    const token = await getGoogleAuthToken(false);
+    this.cachedToken = token;
+    return token;
+  }
+
+  private async accessToken(): Promise<string> {
+    if (this.cachedToken) return this.cachedToken;
+    return this.fetchToken();
+  }
+
   private async headers(): Promise<Record<string, string>> {
-    const fresh = await ensureFreshConnection(this.connection);
-    this.connection = fresh;
+    const token = await this.accessToken();
     return {
-      Authorization: `Bearer ${fresh.accessToken}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const h = await this.headers();
-    const res = await fetch(`${API}/${path}`, {
-      ...init,
-      headers: { ...h, ...(init?.headers ?? {}) },
-    });
-    if (!res.ok) {
-      let payload: unknown = null;
-      try { payload = await res.json(); } catch { /* ignore */ }
-      const e = payload as { error?: { code?: number; message?: string; status?: string } };
-      const err = new Error(e?.error?.message || `Google Sheets API error (${res.status})`) as Error & {
-        status?: number; error?: { code?: number; message?: string };
-      };
-      err.status = res.status;
-      err.error = e?.error;
-      throw err;
+  /** Google API fetch with automatic one-shot token renewal on 401. */
+  private async apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const h = await this.headers();
+      const res = await fetch(url, {
+        ...init,
+        headers: { ...h, ...(init?.headers ?? {}) },
+      });
+      if (!res.ok) {
+        let payload: unknown = null;
+        try { payload = await res.json(); } catch { /* ignore */ }
+        const e = payload as { error?: { code?: number; message?: string; status?: string } };
+        const err = new Error(e?.error?.message || `Google Sheets API error (${res.status})`) as Error & {
+          status?: number; error?: { code?: number; message?: string };
+        };
+        err.status = res.status;
+        err.error = e?.error;
+        if (res.status === 401 && attempt === 0 && this.cachedToken) {
+          // token revoked/expired — drop it and silently re-request once
+          this.cachedToken = null;
+          try {
+            await this.fetchToken();
+            continue;
+          } catch (reauthError) {
+            if (reauthError instanceof GoogleAuthError) throw reauthError;
+          }
+        }
+        throw err;
+      }
+      return res.json() as Promise<T>;
     }
-    return res.json() as Promise<T>;
+    throw new Error('Google Sheets request failed.');
+  }
+
+  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    return this.apiFetch<T>(`${API}/${path}`, init);
   }
 
   private encodeRange(sheet: string, range: string): string {
@@ -81,12 +119,7 @@ export class GoogleSheetsDriver implements DriverLike {
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
         "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
       )}&fields=files(id,name)&pageSize=100&orderBy=modifiedTime desc&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-    const h = await this.headers();
-    const res = await fetch(url, { headers: h });
-    if (!res.ok) {
-      throw new Error(`Unable to list spreadsheets (${res.status})`);
-    }
-    const data = (await res.json()) as { files?: { id: string; name: string }[] };
+    const data = await this.apiFetch<{ files?: { id: string; name: string }[] }>(url);
     return (data.files ?? []).map((f) => ({
       spreadsheetId: f.id,
       spreadsheetName: f.name,
