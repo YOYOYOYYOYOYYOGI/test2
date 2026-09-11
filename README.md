@@ -29,6 +29,8 @@ server/
 
 The dashboard can be opened in a browser while developing (`http://localhost:8787`) or from Chrome via **Load unpacked** (`extension/`). The extension defaults to `http://localhost:8787/api`; change this in Settings if the gateway is hosted elsewhere.
 
+The creator pipeline accepts a user-uploaded model/creator image. If none is supplied, it automatically creates and stores a built-in UGC-style female creator fallback; when an OpenAI-compatible image provider is configured on the gateway, the same seam can generate a creator portrait server-side. Creator imagery is used for hook/problem/benefit/proof/CTA scenes while product imagery is used for product/demo scenes. A product brief plus images can generate a Reel script automatically using the six-beat `Hook → Problem → Product → Benefits → Proof / Result → CTA` structure.
+
 ## Run locally
 
 ```bash

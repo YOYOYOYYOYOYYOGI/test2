@@ -32,6 +32,7 @@ export async function renderProjectToWebm(project, assets = [], onProgress = () 
   const assetMap = new Map(assets.map(asset => [asset.id, asset]));
   const imageMap = new Map();
   for (const scene of project.scenes || []) { const asset = assetMap.get(scene.imageAssetId); if (asset?.dataUrl && !imageMap.has(asset.id)) imageMap.set(asset.id, await loadImage(asset.dataUrl)); }
+  const creatorAsset = assetMap.get(project.creatorAssetId); if (creatorAsset?.dataUrl && !imageMap.has(creatorAsset.id)) imageMap.set(creatorAsset.id, await loadImage(creatorAsset.dataUrl));
   const scenes = project.scenes?.length ? project.scenes : [{ type: 'Hook', script: project.script || 'Your story starts here.', duration: 4 }];
   const durations = scenes.map(s => Math.max(1.6, Number(s.duration) || 3)); const total = durations.reduce((sum, value) => sum + value, 0);
   const recorderStream = canvas.captureStream(30);
@@ -54,7 +55,9 @@ export async function renderProjectToWebm(project, assets = [], onProgress = () 
     const sceneElapsed = elapsed - cursor; const progress = Math.min(1, elapsed / total); const scene = scenes[index]; const sceneProgress = Math.min(1, sceneElapsed / durations[index]); const fade = Math.min(1, sceneProgress / .32, (1 - sceneProgress) / .32); const palette = PALETTES[index % PALETTES.length];
     const gradient = ctx.createLinearGradient(0, 0, width, height); gradient.addColorStop(0, palette[0]); gradient.addColorStop(1, palette[1]); ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
     const glow = ctx.createRadialGradient(width * .7, height * .23, 0, width * .7, height * .23, width * .8); glow.addColorStop(0, `${palette[2]}35`); glow.addColorStop(1, `${palette[2]}00`); ctx.fillStyle = glow; ctx.fillRect(0, 0, width, height);
-    const selected = imageMap.get(scene.imageAssetId); if (selected) { ctx.save(); ctx.globalAlpha = .83 * Math.max(.4, fade); const scale = 1 + sceneProgress * .045; drawImageCover(ctx, selected, { x: width * .07, y: height * .12, w: width * .86, h: height * .66 }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.32)'; ctx.fillRect(0, 0, width, height); }
+    const selected = imageMap.get(scene.imageAssetId); const creator = imageMap.get(project.creatorAssetId); const sceneType = String(scene.type || '').toLowerCase(); const creatorScene = creator && !/(product|demo|unbox|showcase)/.test(sceneType);
+    if (creatorScene) { ctx.save(); ctx.globalAlpha = .9 * Math.max(.4, fade); const scale = 1 + sceneProgress * .035; drawImageCover(ctx, creator, { x: 0, y: 0, w: width, h: height }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.27)'; ctx.fillRect(0, 0, width, height); }
+    else if (selected) { ctx.save(); ctx.globalAlpha = .83 * Math.max(.4, fade); const scale = 1 + sceneProgress * .045; drawImageCover(ctx, selected, { x: width * .07, y: height * .12, w: width * .86, h: height * .66 }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.32)'; ctx.fillRect(0, 0, width, height); }
     else { drawProductPlaceholder(ctx, width, height, palette, sceneProgress); }
     ctx.fillStyle = 'rgba(8,10,12,.20)'; ctx.fillRect(0, 0, width, height);
     const pad = width * .075; ctx.fillStyle = '#d9f565'; ctx.font = `700 ${Math.max(10, width * .022)}px DM Mono, monospace`; ctx.letterSpacing = '2px'; ctx.fillText((project.brandName || 'UGC STUDIO').toUpperCase(), pad, pad * 1.45); ctx.letterSpacing = '0px';

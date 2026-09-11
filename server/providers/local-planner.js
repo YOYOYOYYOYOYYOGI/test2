@@ -7,6 +7,11 @@ function cleanCaption(text) {
   const words = text.replace(/[.!?]+$/, '').split(/\s+/).slice(0, 7).join(' ');
   return words ? `${words}${text.length > words.length ? '…' : ''}` : 'Your next easy routine';
 }
+export function generateScriptLocally({ brandName = 'your brand', productName = 'your product', productContext = '', cta = 'Shop now' } = {}) {
+  const context = productContext ? ` It is ${productContext.replace(/[.]+$/, '')}.` : ' It is made for a simple everyday routine.';
+  return `Still searching for an easy way to upgrade your routine? Meet ${brandName} ${productName}.${context} I love how simple it is to use and how naturally it fits into my day. Add it after cleansing, keep the routine consistent, and notice how much easier your reset feels. Save this for your next restock and ${cta.toLowerCase()}.`;
+}
+
 export function planLocally({ script = '', style = 'Voice-over ad', ratio = '9:16' } = {}) {
   const sentences = splitSentences(script);
   if (!sentences.length) throw new Error('A non-empty script is required.');

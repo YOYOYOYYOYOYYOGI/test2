@@ -28,6 +28,8 @@ export async function transcodeWebm(blob) {
   return response.blob();
 }
 export async function analyzeScript(payload) { return request('/analyze-script', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function generateScript(payload) { return request('/generate-script', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function generateCreator(payload) { return request('/generate-creator', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function generateVoice(payload) { return request('/generate-voice', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function createRenderJob(payload) { return request('/render/jobs', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function getRenderJob(id) { return request(`/render/jobs/${encodeURIComponent(id)}`); }

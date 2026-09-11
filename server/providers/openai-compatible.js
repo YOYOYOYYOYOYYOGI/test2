@@ -4,6 +4,19 @@ function extractJson(content) {
   return JSON.parse(candidate);
 }
 
+export class OpenAIImageProvider {
+  constructor({ apiKey, baseUrl, model }) { this.apiKey = apiKey; this.baseUrl = baseUrl.replace(/\/$/, ''); this.model = model; }
+  get name() { return `Image · ${this.model}`; }
+  async generateCreator({ brandName = 'the brand', style = 'natural Indian UGC creator' } = {}) {
+    const response = await fetch(`${this.baseUrl}/images/generations`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` }, body: JSON.stringify({ model: this.model, prompt: `A vertical, realistic UGC beauty creator portrait for ${brandName}: a friendly adult woman, natural skin texture, approachable expression, softly lit home setting, phone-camera framing, no text, no logos, no product, ${style}.` , size: '1024x1536', n: 1, response_format: 'b64_json' }) });
+    if (!response.ok) { const detail = await response.text(); throw new Error(`Image provider returned ${response.status}: ${detail.slice(0, 240)}`); }
+    const data = await response.json(); const image = data.data?.[0]; if (!image) throw new Error('Image provider returned no creator image.');
+    if (image.b64_json) return { dataUrl: `data:image/png;base64,${image.b64_json}`, provider: this.name };
+    if (image.url) { const asset = await fetch(image.url); if (!asset.ok) throw new Error('Generated creator image could not be downloaded.'); const buffer = Buffer.from(await asset.arrayBuffer()); return { dataUrl: `data:image/png;base64,${buffer.toString('base64')}`, provider: this.name }; }
+    throw new Error('Image provider returned an unsupported image format.');
+  }
+}
+
 export class OpenAICompatibleProvider {
   constructor({ apiKey, baseUrl, model }) { this.apiKey = apiKey; this.baseUrl = baseUrl.replace(/\/$/, ''); this.model = model; }
   get name() { return `LLM · ${this.model}`; }

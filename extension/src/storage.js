@@ -50,7 +50,8 @@ export async function getKnowledge() {
   return getValue(KNOWLEDGE_KEY, [
     { id: 'kb-1', type: 'Brand rule', title: 'Sound like a confident friend', content: 'Use clear, warm Indian English. Avoid exaggerated medical claims. Keep benefits specific and easy to understand.' },
     { id: 'kb-2', type: 'Winning hook', title: 'The 3-second problem opener', content: 'Start with a relatable skincare frustration before introducing the product.' },
-    { id: 'kb-3', type: 'CTA', title: 'Soft conversion', content: 'Close with one direct action: tap to shop, save this routine, or try it today.' }
+    { id: 'kb-3', type: 'CTA', title: 'Soft conversion', content: 'Close with one direct action: tap to shop, save this routine, or try it today.' },
+    { id: 'kb-4', type: 'Reels rule', title: 'Retention-first six beats', content: 'Open with a visual or question in the first three seconds. Move Hook → Problem → Product → Benefits → Proof / Result → CTA. Keep each beat focused and conversational.' }
   ]);
 }
 
@@ -76,6 +77,14 @@ export async function saveAsset(file, metadata = {}) {
   const id = metadata.id || `asset-${crypto.randomUUID()}`;
   const dataUrl = await fileToDataUrl(file);
   const record = { id, name: file.name, type: file.type, size: file.size, dataUrl, createdAt: new Date().toISOString(), ...metadata };
+  return saveAssetRecord(record);
+}
+export async function saveDataUrlAsset(dataUrl, metadata = {}) {
+  const id = metadata.id || `asset-${crypto.randomUUID()}`;
+  const record = { id, name: metadata.name || 'generated-creator.svg', type: metadata.type || 'image/svg+xml', size: dataUrl.length, dataUrl, createdAt: new Date().toISOString(), ...metadata };
+  return saveAssetRecord(record);
+}
+async function saveAssetRecord(record) {
   const db = await openDb();
   await new Promise((resolve, reject) => { const tx = db.transaction('assets', 'readwrite'); tx.objectStore('assets').put(record); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
   return record;
