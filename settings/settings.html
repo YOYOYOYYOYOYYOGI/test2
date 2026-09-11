@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReelForge Settings</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-head">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5.5v13l11-6.5z" fill="#fff"/></svg>
+        </span>
+        <div>
+          <h1>ReelForge AI UGC <span>· Settings</span></h1>
+          <p>Bring your own provider. Keys are stored locally in this browser and sent directly to the hosts you configure.</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- CONNECTION MODE -->
+      <section class="card">
+        <div class="card-head"><h2>1 · Connection mode</h2></div>
+        <div class="card-body">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="direct" />
+            <div>
+              <strong>Direct provider APIs</strong>
+              <p>Your browser talks straight to Google Gemini, OpenAI-compatible hosts or fal.ai using keys stored on this device. Each provider keeps its own key and host permission is requested only for the provider you select.</p>
+            </div>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="proxy" />
+            <div>
+              <strong>Secure backend proxy (recommended for teams)</strong>
+              <p>Deploy the tiny included backend and keep provider keys server-side. The extension only holds a shared proxy key. See <code>reelforge-backend/README.md</code>.</p>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- PROXY -->
+      <section class="card hidden" id="panel-proxy">
+        <div class="card-head"><h2>2 · Secure backend</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <label for="proxy-url">Backend base URL</label>
+            <input type="url" id="proxy-url" placeholder="https://reelforge-proxy.yourdomain.com" />
+            <p class="field-note">HTTPS is required except http://localhost for local development.</p>
+          </div>
+          <div class="field">
+            <label for="proxy-key">Proxy access key</label>
+            <input type="password" id="proxy-key" autocomplete="off" placeholder="Not saved yet" />
+            <p class="field-note">Sent as the <code>X-ReelForge-Key</code> header. Leave blank to keep the saved value.</p>
+          </div>
+          <div class="test-row">
+            <button class="btn btn-secondary btn-small" id="btn-test-proxy">Test backend connection</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- DIRECT -->
+      <div id="panel-direct">
+        <section class="card">
+          <div class="card-head"><h2>2 · Language model (scripts, hooks, brief)</h2></div>
+          <div class="card-body">
+            <div class="field">
+              <label for="llm-provider">Provider</label>
+              <select id="llm-provider"></select>
+            </div>
+            <div id="llm-fields"></div>
+            <div class="test-row">
+              <button class="btn btn-secondary btn-small" id="btn-test-llm">Test Language Connection</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>3 · Image generation (AI creator image)</h2></div>
+          <div class="card-body">
+            <div class="field">
+              <label for="image-provider">Provider</label>
+              <select id="image-provider"></select>
+            </div>
+            <div id="image-fields"></div>
+            <div class="test-row">
+              <button class="btn btn-secondary btn-small" id="btn-test-image">Test image connection</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>4 · Video generation</h2></div>
+          <div class="card-body">
+            <div class="field">
+              <label for="video-provider">Provider</label>
+              <select id="video-provider"></select>
+            </div>
+            <div id="video-fields"></div>
+            <div class="test-row">
+              <button class="btn btn-secondary btn-small" id="btn-test-video">Test video connection</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- DEFAULTS -->
+      <section class="card">
+        <div class="card-head"><h2 id="defaults-heading">5 · UGC defaults</h2></div>
+        <div class="card-body">
+          <div class="grid-2">
+            <div class="field">
+              <label for="def-duration">Default video duration</label>
+              <select id="def-duration"></select>
+            </div>
+            <div class="field">
+              <label for="def-language">Default language</label>
+              <select id="def-language"></select>
+            </div>
+            <div class="field">
+              <label for="def-style">Default UGC style</label>
+              <select id="def-style"></select>
+            </div>
+            <div class="field">
+              <label for="def-creator">Default creator style</label>
+              <select id="def-creator"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="def-cta">Default call to action</label>
+            <input type="text" id="def-cta" maxlength="160" />
+          </div>
+        </div>
+      </section>
+
+      <!-- ACTIONS -->
+      <section class="card actions-card">
+        <div class="card-body">
+          <div class="actions-row">
+            <button class="btn btn-primary" id="btn-save">Save Settings</button>
+            <button class="btn btn-secondary" id="btn-test-all">Test All Connections</button>
+          </div>
+          <div id="save-status" class="inline-status"></div>
+
+          <hr class="sep" />
+          <details>
+            <summary>Security &amp; data</summary>
+            <ul class="notes">
+              <li>API keys are stored in <code>chrome.storage.local</code>, scoped to this extension. They are never synced to your Google account.</li>
+              <li>Every API call goes through the extension service worker, which only permits HTTPS (localhost excepted) and never executes remote code.</li>
+              <li>The extension uses no analytics, no tracking, no cookies and no tab/history permissions.</li>
+              <li>For distribution to a team, prefer secure-backend mode so keys never leave your server.</li>
+            </ul>
+            <button class="btn btn-danger btn-small" id="btn-clear-data">Clear history &amp; drafts (keeps keys)</button>
+            <div id="clear-status" class="inline-status"></div>
+          </details>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

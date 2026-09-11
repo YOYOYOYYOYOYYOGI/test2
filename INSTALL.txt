@@ -1,0 +1,24 @@
+REELFORGE AI UGC VIDEO GENERATOR — v1.0.0 (Chrome Manifest V3)
+
+INSTALL
+1. Unzip this archive.
+2. Open chrome://extensions
+3. Turn on Developer mode (top right).
+4. Click "Load unpacked" and choose the unzipped folder
+   (the folder containing manifest.json).
+5. Open ReelForge, click the gear, pick a language provider and add its key:
+
+   - Google Gemini (recommended): choose "Google Gemini", paste your Gemini
+     API key from https://aistudio.google.com/app/apikey, pick a model
+     (gemini-2.5-flash by default), Save, then "Test Language Connection".
+     The Gemini key is only ever sent to Google's native Gemini API.
+   - Or choose Local Templates for fully offline scripts/hooks (no key).
+   - OpenAI / OpenRouter / Groq / Together / fal.ai are separate entries,
+     each with its own key; keys are never shared or mixed between providers.
+
+   Image and video generation need a fal.ai or OpenAI key in their own
+   sections, or the optional secure backend (source + docs in the main
+   repository).
+
+The extension has zero runtime dependencies. Error messages never include
+your API key.

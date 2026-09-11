@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "ReelForge AI UGC Video Generator",
+  "short_name": "ReelForge AI",
+  "version": "1.0.0",
+  "description": "Create short UGC-style marketing videos from a product, an image and an AI script. Bring your own image/video/LLM provider through secure settings.",
+  "minimum_chrome_version": "110",
+
+  "action": {
+    "default_title": "ReelForge AI UGC",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+
+  "options_page": "settings/settings.html",
+
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+
+  "permissions": [
+    "storage"
+  ],
+
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'self'"
+  }
+}
