@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReelForge AI UGC</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5.5v13l11-6.5z" fill="#fff"/></svg>
+      </span>
+      <div class="brand-text">
+        <h1>ReelForge <span>AI UGC</span></h1>
+        <p>UGC video generator</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-history" class="icon-btn" title="History" aria-label="History">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.46.62.8 1.12 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+    <div id="config-warning" class="status-banner status-error hidden">
+      <span class="status-icon">⚠</span>
+      <div class="status-body">
+        <div class="status-message">API not configured yet.</div>
+        <div class="status-details">Add your provider credentials (or secure backend URL) in Settings. Scripts and hooks work offline; images and videos need a provider.</div>
+        <button class="btn btn-small btn-primary" id="btn-configure">Open Settings</button>
+      </div>
+    </div>
+
+    <div id="resume-banner" class="status-banner status-info hidden">
+      <span class="status-icon">⏳</span>
+      <div class="status-body">
+        <div class="status-message">A video is still generating.</div>
+        <div class="status-details" id="resume-details"></div>
+        <button class="btn btn-small btn-primary" id="btn-resume">Resume tracking</button>
+      </div>
+    </div>
+
+    <!-- 1. PRODUCT INFORMATION -->
+    <section class="card" id="card-product">
+      <div class="card-head">
+        <span class="step">1</span>
+        <h2>Product Information</h2>
+      </div>
+      <div class="card-body">
+        <div id="product-fields" class="fields-grid"></div>
+        <div class="row-actions">
+          <button class="btn btn-secondary" id="btn-generate-brief">
+            <span class="btn-label">Generate For Me</span>
+          </button>
+        </div>
+        <div class="inline-status" id="brief-status"></div>
+      </div>
+    </section>
+
+    <!-- 2. PRODUCT IMAGE -->
+    <section class="card" id="card-product-image">
+      <div class="card-head">
+        <span class="step">2</span>
+        <h2>Product Image <span class="badge badge-required">required</span></h2>
+      </div>
+      <div class="card-body">
+        <div id="product-image-slot"></div>
+      </div>
+    </section>
+
+    <!-- 3. CREATOR IMAGE -->
+    <section class="card" id="card-creator-image">
+      <div class="card-head">
+        <span class="step">3</span>
+        <h2>Creator / Girl Image <span class="badge badge-optional">optional</span></h2>
+      </div>
+      <div class="card-body">
+        <p class="hint">Creator image is optional. If you don't upload one, AI will create a suitable UGC creator that matches your product.</p>
+        <div id="creator-image-slot"></div>
+        <div class="row-actions">
+          <button class="btn btn-secondary" id="btn-generate-creator">
+            <span class="btn-label">Generate creator image</span>
+          </button>
+        </div>
+        <div class="inline-status" id="creator-status"></div>
+      </div>
+    </section>
+
+    <!-- 4. SCRIPT -->
+    <section class="card" id="card-script">
+      <div class="card-head">
+        <span class="step">4</span>
+        <h2>UGC Script</h2>
+      </div>
+      <div class="card-body">
+        <div class="row-actions wrap">
+          <button class="btn btn-secondary" id="btn-generate-script"><span class="btn-label">Generate UGC Script</span></button>
+          <button class="btn btn-secondary" id="btn-generate-hooks"><span class="btn-label">Generate Hooks</span></button>
+        </div>
+        <div id="hooks" class="hooks hidden"></div>
+        <textarea id="script" rows="14" placeholder="Generate a script or write your own. Sections: HOOK · PROBLEM · SOLUTION · PRODUCT · BENEFIT · CTA. Everything is editable before you generate the video."></textarea>
+        <div class="inline-status" id="script-status"></div>
+      </div>
+    </section>
+
+    <!-- 5. VIDEO GENERATION -->
+    <section class="card" id="card-generate">
+      <div class="card-head">
+        <span class="step">5</span>
+        <h2>Video Generation</h2>
+      </div>
+      <div class="card-body">
+        <div class="option-row">
+          <label for="duration">Duration</label>
+          <select id="duration"></select>
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" id="btn-generate-video">
+          <span class="btn-label">Generate UGC Video</span>
+        </button>
+        <div id="progress" class="progress hidden">
+          <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+          <div class="progress-log" id="progress-log">Starting…</div>
+          <div class="row-actions">
+            <button class="btn btn-small btn-ghost" id="btn-cancel">Stop tracking (job continues on the provider)</button>
+          </div>
+        </div>
+        <div class="inline-status" id="video-status"></div>
+      </div>
+    </section>
+
+    <!-- 6. RESULT -->
+    <section class="card hidden" id="card-result">
+      <div class="card-head">
+        <span class="step">✓</span>
+        <h2>Result</h2>
+        <span class="badge badge-success" id="result-status">Completed</span>
+      </div>
+      <div class="card-body">
+        <video id="result-video" controls playsinline preload="metadata"></video>
+        <dl class="meta-grid">
+          <div><dt>Duration</dt><dd id="result-duration">—</dd></div>
+          <div><dt>Status</dt><dd id="result-state">Completed</dd></div>
+          <div><dt>Size</dt><dd id="result-size">—</dd></div>
+          <div><dt>Provider</dt><dd id="result-provider">—</dd></div>
+        </dl>
+        <div class="row-actions wrap">
+          <button class="btn btn-primary" id="btn-download">Download Video</button>
+          <button class="btn btn-secondary" id="btn-regenerate">Regenerate</button>
+          <button class="btn btn-ghost" id="btn-edit-script">Edit Script</button>
+          <button class="btn btn-ghost" id="btn-new">Create Another Video</button>
+        </div>
+        <div class="inline-status" id="result-action-status"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- HISTORY MODAL -->
+  <div class="modal-backdrop hidden" id="history-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="History">
+      <div class="modal-head">
+        <h2>History</h2>
+        <button class="icon-btn" id="btn-close-history" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="history-list"></div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <span>v1.0.0</span>
+    <span>Your assets and keys stay in this browser.</span>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Dependencies (none are required; never ship these in the extension)
+node_modules/
+**/node_modules/
+
+# Test/dev runtime artifacts
+tests/screenshots/
+.DS_Store
+*.log
+*.crdownload
+
+# Backend local config
+reelforge-backend/.env
+
+
+# Test TLS material (regenerate with tests/setup-tls.sh)
+tests/tls/

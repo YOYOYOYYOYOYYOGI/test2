@@ -1,0 +1,15 @@
+{
+  "name": "reelforge-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small secure proxy for the ReelForge AI UGC Chrome extension. Keeps provider API keys server-side.",
+  "type": "module",
+  "main": "server.mjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "license": "MIT"
+}
