@@ -53,9 +53,11 @@ UGC-Video-Generator/
 
 ## Installation
 
+> ℹ️ The distribution ZIP contains the extension itself (`extension/` folder) plus README and LICENSE. The optional secure backend (`backend/`) and developer docs (`docs/`) live in this GitHub repository — clone or download the repo if you want to run the key-proxy backend.
+
 ### 1. Load the extension in Chrome
 
-1. **Download** `UGC-Video-Generator.zip` and **extract** it.
+1. **Download** `UGC-Video-Generator-CLEAN-v1.0.0.zip` and **extract** it.
 2. Open `chrome://extensions` in Chrome (Chrome **126+** required — the extension uses MP4 recording).
 3. Enable **Developer mode** (top-right toggle).
 4. Click **Load unpacked**.

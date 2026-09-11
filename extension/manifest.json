@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ReelForge — AI UGC Video Generator",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "description": "Generate realistic AI UGC advertisement videos for Instagram Reels: reference-reel style matching, storyboard, photorealistic creators, voice, lip-sync, captions, music and MP4 export.",
   "minimum_chrome_version": "126",
   "action": {

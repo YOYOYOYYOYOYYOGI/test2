@@ -248,7 +248,7 @@ export async function renderSettings(view) {
 
   /* --------------------------------- about -------------------------------- */
   view.append(el('div', { class: 'note', style: { marginTop: '20px' } },
-    el('b', {}, 'ReelForge v1.2.0 — '), 'AI UGC Video Generator for Chrome. ',
+    el('b', {}, 'ReelForge v1.0.0 (clean build) — '), 'AI UGC Video Generator for Chrome. ',
     'Rendering (compositing, captions, music mixing, MP4 export) runs locally in your browser. Realistic humans, lip-sync and AI video clips depend on the external providers you connect — ',
     'the app never pretends a provider is available when it is not. See docs/PROVIDERS.md in the project ZIP.'));
 }
