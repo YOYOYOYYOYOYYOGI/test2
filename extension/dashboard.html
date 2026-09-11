@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e1115" />
+  <title>UGC Video Creator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-lockup">
+        <div class="brand-mark">U</div>
+        <div><div class="brand-name">UGC Studio</div><div class="brand-sub">creator workspace</div></div>
+      </div>
+      <button class="new-project-btn" id="new-project-btn"><span class="plus">+</span> New project <span class="shortcut">⌘ N</span></button>
+      <div class="side-section-label">Workspace</div>
+      <nav class="nav-list" id="main-nav">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span> Overview</button>
+        <button class="nav-item" data-view="projects"><span class="nav-icon">▣</span> My projects <span class="nav-count" id="project-count">3</span></button>
+        <button class="nav-item" data-view="templates"><span class="nav-icon">✦</span> Templates</button>
+      </nav>
+      <div class="side-section-label side-label-spaced">Build system</div>
+      <nav class="nav-list">
+        <button class="nav-item" data-view="brand"><span class="nav-icon">◒</span> Brand kit <span class="status-dot"></span></button>
+        <button class="nav-item" data-view="knowledge"><span class="nav-icon">⌘</span> UGC knowledge base</button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span> Settings</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="connection-card" id="connection-card"><span class="pulse-dot"></span><div><strong>Local gateway</strong><small>Checking connection…</small></div><button class="icon-button" title="Refresh connection" id="refresh-connection">↻</button></div>
+        <div class="profile-row"><div class="avatar">RN</div><div><strong>Rangat Naturals</strong><small>Personal workspace</small></div><button class="more-button">•••</button></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumb"><span>Workspace</span><span class="crumb-separator">/</span><strong id="page-title">Overview</strong></div>
+        <div class="topbar-actions"><button class="help-button">? <span>Help center</span></button><button class="notification-button">♢<i></i></button><button class="top-avatar">RN</button></div>
+      </header>
+
+      <div id="app-view" class="view-container">
+        <!-- Rendered by app.js -->
+      </div>
+    </main>
+  </div>
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="modal-backdrop"><div class="modal" id="modal"></div></div>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
