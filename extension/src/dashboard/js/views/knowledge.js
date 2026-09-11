@@ -9,7 +9,7 @@
  * The UI says so explicitly to stay honest about what the feature does.
  */
 
-import { el, icon, toast, confirmDlg, dropzone, debounce } from '../ui.js';
+import { el, icon, toast, confirmDlg, dropzone, debounce, modal } from '../ui.js';
 import { listKB, saveKBEntry, deleteKBEntry, bumpKB, KB_TYPES, kbTypeLabel } from '../../../shared/ai/kb.js';
 import { uid, escapeHtml } from '../../../shared/core/utils.js';
 
@@ -119,8 +119,7 @@ export async function renderKnowledge(view) {
   }
 
   function editEntry(existing) {
-    import('../ui.js').then(({ modal }) => open(modal));
-    function open(modal) {
+    {
       const typeIn = el('select', { class: 'input' },
         ...KB_TYPES.map((t) => el('option', { value: t.id, selected: existing?.type === t.id }, t.label)));
       const titleIn = el('input', { class: 'input', value: existing?.title || '', placeholder: 'e.g. Serum launch hook that got 2.1M views' });

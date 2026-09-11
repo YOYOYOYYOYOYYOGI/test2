@@ -9,7 +9,7 @@
 
 import { el, icon, toast, confirmDlg, statusBadge, assetImg, progressBar, fmtBytes, modal, dropzone } from '../ui.js';
 import { getProject, putProject, saveBlob, getAsset, getAssetURL, deleteAsset } from '../../../shared/core/idb.js';
-import { isConfigured } from '../../../shared/core/storage.js';
+import { isConfigured, saveSettings } from '../../../shared/core/storage.js';
 import { CAPTION_STYLES } from '../../../shared/render/captions.js';
 import { MUSIC_STYLES, generateLocalMusic } from '../../../shared/render/music-synth.js';
 import { STYLE_PRESETS, HOOK_CATEGORIES } from '../../../shared/ai/prompts.js';
@@ -279,16 +279,20 @@ export async function renderProject(view, id, { setTopbar }) {
             if (!rec) { toast('Rendered file missing — re-render.', 'error'); return; }
             const safe = (project.name || 'reelforge').replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '-');
             const filename = `${safe || 'reelforge'}-${fileStamp()}.${project.render.ext}`;
-            // Prefer the chrome.downloads API (streams large files to disk),
-            // with a plain anchor fallback when unavailable.
-            if (typeof chrome !== 'undefined' && chrome.downloads?.download) {
-              const url = URL.createObjectURL(rec.blob);
-              try {
+            // Preferred: chrome.downloads (streams large files straight to disk).
+            // The permission is optional and requested on this click; a plain
+            // anchor download is the always-works fallback.
+            let url = null;
+            try {
+              const hasDl = chrome.downloads?.download && await chrome.permissions.request({ permissions: ['downloads'] });
+              if (hasDl) {
+                url = URL.createObjectURL(rec.blob);
                 await chrome.downloads.download({ url, filename, saveAs: true });
                 setTimeout(() => URL.revokeObjectURL(url), 120000);
                 return;
-              } catch { URL.revokeObjectURL(url); }
-            }
+              }
+            } catch { /* fall through to anchor download */ }
+            if (url) URL.revokeObjectURL(url);
             downloadBlob(rec.blob, filename);
           },
         }, icon('download'), 'Download video'),
@@ -499,18 +503,16 @@ export async function renderProject(view, id, { setTopbar }) {
       });
 
       const uploadWrap = el('div', { style: { marginTop: '10px', display: m.source === 'upload' ? '' : 'none' } });
-      import('../ui.js').then(({ dropzone }) => {
-        uploadWrap.append(dropzone({
-          accept: 'audio/*', label: 'Upload music file', sub: 'MP3 · WAV · M4A',
-          onFiles: async ([f]) => {
-            const asset = await saveBlob(f, { name: f.name, type: f.type });
-            project.music = { ...m, source: 'upload', uploadedAssetId: asset.id };
-            await save();
-            toast('Music uploaded', 'success');
-            paint();
-          },
-        }));
-      });
+      uploadWrap.append(dropzone({
+        accept: 'audio/*', label: 'Upload music file', sub: 'MP3 · WAV · M4A',
+        onFiles: async ([f]) => {
+          const asset = await saveBlob(f, { name: f.name, type: f.type });
+          project.music = { ...m, source: 'upload', uploadedAssetId: asset.id };
+          await save();
+          toast('Music uploaded', 'success');
+          paint();
+        },
+      }));
 
       source.addEventListener('change', () => {
         project.music = { ...m, source: source.value };
@@ -523,8 +525,6 @@ export async function renderProject(view, id, { setTopbar }) {
       vol.addEventListener('input', async () => {
         volLbl.textContent = `${Math.round(vol.value * 100)}%`;
         settings.defaults.musicVolume = Number(vol.value);
-        await refreshSettings.save?.();
-        const { saveSettings } = await import('../../../shared/core/storage.js');
         await saveSettings(settings);
       });
 

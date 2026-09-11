@@ -9,6 +9,7 @@
 import { chatJSON } from '../providers/llm.js';
 import { buildProductAnalysisPrompt } from './prompts.js';
 import { PROVIDERS } from '../providers/config.js';
+import { loadSettings } from '../core/storage.js';
 
 /**
  * images: [dataURL]. Returns structured analysis or throws when the configured
@@ -16,7 +17,6 @@ import { PROVIDERS } from '../providers/config.js';
  */
 export async function analyzeProductImages(images, { productName, productInfo, signal } = {}) {
   if (!images?.length) throw new Error('No product images provided.');
-  const { loadSettings } = await import('../core/storage.js');
   const settings = await loadSettings();
   const provider = settings.llm?.provider;
   const meta = PROVIDERS.llm[provider];

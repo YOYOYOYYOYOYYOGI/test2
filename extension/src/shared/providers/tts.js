@@ -9,7 +9,7 @@
  *   listVoices() -> [{ id, name, labels, previewUrl? }]
  */
 
-import { providerFetch, ProviderError } from './transport.js';
+import { providerFetch, ProviderError, resolveTransport } from './transport.js';
 
 /** OpenAI's fixed voice catalog (verified against the official API docs). */
 export const OPENAI_VOICES = [
@@ -27,7 +27,6 @@ export const OPENAI_VOICES = [
 
 export async function synthesizeSpeech(text, { voiceId, speed = 1.0, model, signal, voiceInstructions } = {}) {
   if (!text || !text.trim()) throw new ProviderError('Nothing to speak — the scene has no dialogue.');
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport('tts');
   const cfg = t.settings.tts;
 
@@ -72,7 +71,6 @@ export async function synthesizeSpeech(text, { voiceId, speed = 1.0, model, sign
 
 /** Fetch the selectable voice list for the configured TTS provider. */
 export async function listVoices() {
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport('tts');
   if (t.provider === 'openai') return OPENAI_VOICES;
   if (t.provider === 'elevenlabs') {

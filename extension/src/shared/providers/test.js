@@ -4,10 +4,9 @@
  * result is honest: a green check means the credential was accepted.
  */
 
-import { providerFetch } from './transport.js';
+import { providerFetch, resolveTransport } from './transport.js';
 
 export async function testProvider(category) {
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport(category);
   const p = t.provider;
 

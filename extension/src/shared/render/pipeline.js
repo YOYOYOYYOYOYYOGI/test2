@@ -17,7 +17,7 @@
  */
 
 import { uid, clamp } from '../core/utils.js';
-import { getAssetDataURL, saveBlob, putProject } from '../core/idb.js';
+import { getAsset, getAssetDataURL, saveBlob, putProject } from '../core/idb.js';
 import { isConfigured, loadSettings } from '../core/storage.js';
 import { chatJSON, chat } from '../providers/llm.js';
 import { generateImage } from '../providers/image.js';
@@ -49,8 +49,6 @@ export async function runReferenceAnalysis(project, { signal, force } = {}) {
   const ref = project.input.referenceReel;
   if (!ref?.assetId) throw new Error('No reference reel uploaded.');
   if (ref.analysis && !force) return project;
-
-  const { getAsset } = await import('../core/idb.js');
   const rec = await getAsset(ref.assetId);
   if (!rec) throw new Error('Reference reel file is missing — re-upload it.');
 

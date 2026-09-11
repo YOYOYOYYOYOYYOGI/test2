@@ -14,11 +14,10 @@
  *     -> { blob, mime, provider, model }
  */
 
-import { providerFetch, ProviderError } from './transport.js';
+import { providerFetch, ProviderError, resolveTransport } from './transport.js';
 import { createReplicatePrediction, pollReplicatePrediction } from './replicate.js';
 
 export async function generateLipSync({ imageDataURL, audioDataURL, model, signal, onStatus, promptNotes }) {
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport('lipsync');
   const cfg = t.settings.lipsync;
   const useModel = model || cfg.model || undefined;

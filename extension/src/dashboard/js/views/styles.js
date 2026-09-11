@@ -2,7 +2,7 @@
  * ReelForge — Video Styles: built-in presets + user-defined custom styles.
  */
 
-import { el, icon, toast, confirmDlg } from '../ui.js';
+import { el, icon, toast, confirmDlg, modal } from '../ui.js';
 import { STYLE_PRESETS } from '../../../shared/ai/prompts.js';
 import { listCustomStyles, saveCustomStyle, deleteCustomStyle } from '../../../shared/core/storage.js';
 
@@ -67,7 +67,7 @@ export async function renderStyles(view) {
   }
 
   function edit(existing) {
-    import('../ui.js').then(({ modal }) => {
+    {
       const name = el('input', { class: 'input', value: existing?.name || '', placeholder: 'Style name' });
       const instructions = el('textarea', { class: 'input', rows: '5', placeholder: 'Style instructions for the AI director…' });
       instructions.value = existing?.instructions || '';
@@ -92,6 +92,6 @@ export async function renderStyles(view) {
           }, 'Save'),
         ],
       });
-    });
+    }
   }
 }

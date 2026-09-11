@@ -12,13 +12,12 @@
  *     -> { blob, mime, provider, model }
  */
 
-import { providerFetch, ProviderError } from './transport.js';
+import { providerFetch, ProviderError, resolveTransport } from './transport.js';
 import { createReplicatePrediction, pollReplicatePrediction } from './replicate.js';
 
 const clampDur = (d) => Math.max(3, Math.min(10, Math.round(d)));
 
 export async function generateVideoClip({ prompt, imageDataURL, durationSec = 5, aspect = '9:16', model, signal, onStatus }) {
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport('video');
   const cfg = t.settings.video;
   const useModel = model || cfg.model || undefined;

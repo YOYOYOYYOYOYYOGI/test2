@@ -55,7 +55,7 @@ UGC-Video-Generator/
 
 ### 1. Load the extension in Chrome
 
-1. **Download** `UGC-Video-Generator.zip` and **extract** it.
+1. **Download** `ReelForge-AI-UGC-Video-Generator-v1.2.0.zip` and **extract** it.
 2. Open `chrome://extensions` in Chrome (Chrome **126+** required — the extension uses MP4 recording).
 3. Enable **Developer mode** (top-right toggle).
 4. Click **Load unpacked**.

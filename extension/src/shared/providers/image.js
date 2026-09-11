@@ -10,7 +10,7 @@
  *   generateImage({ prompt, refs:[dataURL], aspect, model }) -> { blob, mime, provider, model }
  */
 
-import { providerFetch, ProviderError } from './transport.js';
+import { providerFetch, ProviderError, resolveTransport } from './transport.js';
 import { createReplicatePrediction, pollReplicatePrediction } from './replicate.js';
 
 const OPENAI_SIZES = { '9:16': '1024x1536', '1:1': '1024x1024', '16:9': '1536x1024' };
@@ -113,6 +113,5 @@ export async function generateImage({ prompt, refs = [], aspect = '9:16', model,
 }
 
 async function resolveTransportOnce(category) {
-  const { resolveTransport } = await import('./transport.js');
   return resolveTransport(category);
 }

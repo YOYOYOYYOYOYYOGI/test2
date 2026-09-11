@@ -11,10 +11,9 @@
  *   generateMusic({ prompt, durationSec, model, signal }) -> { blob, mime }
  */
 
-import { providerFetch, ProviderError } from './transport.js';
+import { providerFetch, ProviderError, resolveTransport } from './transport.js';
 
 export async function generateMusic({ prompt, durationSec = 30, model, signal }) {
-  const { resolveTransport } = await import('./transport.js');
   const t = await resolveTransport('music');
   const cfg = t.settings.music;
   const useModel = model || cfg.model || undefined;

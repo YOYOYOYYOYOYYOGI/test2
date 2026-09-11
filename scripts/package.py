@@ -15,7 +15,7 @@ import sys
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "UGC-Video-Generator.zip")
+OUT = os.path.join(ROOT, "ReelForge-AI-UGC-Video-Generator-v1.2.0.zip")
 FIXED_DATE = (2026, 1, 1, 0, 0, 0)  # deterministic timestamp
 
 # (source path, archive path) pairs — explicit allow-list, nothing else ships.
@@ -106,7 +106,7 @@ def main() -> None:
                 z.writestr(info, fh.read())
 
     size = os.path.getsize(OUT)
-    print(f"Built UGC-Video-Generator.zip: {len(entries)} files, {size:,} bytes")
+    print(f"Built {os.path.basename(OUT)}: {len(entries)} files, {size:,} bytes")
     # quick self-check
     with zipfile.ZipFile(OUT) as z:
         bad = z.testzip()

@@ -16,6 +16,7 @@
  */
 
 import { uid } from '../core/utils.js';
+import { chatJSON } from '../providers/llm.js';
 
 /* ------------------------- local media extraction ------------------------- */
 
@@ -137,7 +138,6 @@ const REFERENCE_SCHEMA = `{
  * ctx: { productName, script } — used only to tailor "what matters for THIS project".
  */
 export async function analyzeReferenceStyle(frames, meta, ctx, { signal } = {}) {
-  const { chatJSON } = await import('../providers/llm.js');
   const images = frames.map((f) => f.dataURL);
   const user = `Analyze this reference reel (${frames.length} keyframes, chronological).
 
