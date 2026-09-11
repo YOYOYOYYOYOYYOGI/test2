@@ -52,11 +52,46 @@ export const DEFAULT_CTA = 'Tap the link and grab yours before the offer ends.';
 
 export function defaultSettings() {
   return {
-    version: 1,
+    version: 2,
     mode: 'direct', // 'direct' | 'proxy'
     proxyUrl: '',
     proxyKey: '',
-    llm: { provider: 'local', apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    llm: {
+      provider: 'local',
+      // Each language provider keeps its OWN key/endpoint. Keys are never
+      // shared between providers and are never sent to another provider's host.
+      providers: {
+        gemini: {
+          apiKey: '',
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          model: 'gemini-2.5-flash',
+        },
+        openai: {
+          apiKey: '',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o-mini',
+        },
+        openrouter: {
+          apiKey: '',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'openai/gpt-4o-mini',
+        },
+        groq: {
+          apiKey: '',
+          baseUrl: 'https://api.groq.com/openai/v1',
+          model: 'llama-3.3-70b-versatile',
+        },
+        together: {
+          apiKey: '',
+          baseUrl: 'https://api.together.xyz/v1',
+          model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+        },
+        fal: {
+          apiKey: '',
+          model: 'openai/gpt-4o-mini',
+        },
+      },
+    },
     image: { provider: 'fal', apiKey: '', model: 'fal-ai/flux/kontext/max' },
     video: { provider: 'fal', apiKey: '', model: 'fal-ai/kling-video/v2/master/image-to-video', pollInterval: 5 },
     defaults: {
@@ -78,21 +113,67 @@ export const PROVIDERS = Object.freeze({
   llm: [
     {
       id: 'local',
-      label: 'Local templates (offline, text only)',
+      label: 'Local Templates (offline, text only)',
       secret: false,
-      docs: 'No network calls. Builds scripts and hooks from templates on your device.',
+      docs: 'No network calls. Builds scripts, hooks and briefs from templates on your device. Image and video generation still use their own providers below.',
+    },
+    {
+      id: 'gemini',
+      label: 'Google Gemini',
+      secret: true,
+      keyLabel: 'Gemini API key',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      showBaseUrl: true,
+      models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'],
+      docs: 'Uses Google\u2019s native Gemini REST API: POST {base}/models/{model}:generateContent with the x-goog-api-key header. The Gemini key is only ever sent to generativelanguage.googleapis.com.',
     },
     {
       id: 'openai',
-      label: 'OpenAI-compatible Chat API (OpenAI, OpenRouter, Groq, Together, local servers)',
+      label: 'OpenAI',
       secret: true,
-      docs: 'Uses POST {baseUrl}/chat/completions. Your key is stored locally and sent directly to the API origin you choose.',
+      keyLabel: 'OpenAI API key',
+      baseUrl: 'https://api.openai.com/v1',
+      showBaseUrl: true,
+      models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+      docs: 'Uses POST https://api.openai.com/v1/chat/completions with an OpenAI Bearer key. The OpenAI key is never sent to any other provider.',
+    },
+    {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      secret: true,
+      keyLabel: 'OpenRouter API key',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      showBaseUrl: true,
+      models: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'google/gemini-2.5-flash'],
+      docs: 'OpenRouter exposes an OpenAI-compatible API at https://openrouter.ai/api/v1. Uses your OpenRouter key only.',
+    },
+    {
+      id: 'groq',
+      label: 'Groq',
+      secret: true,
+      keyLabel: 'Groq API key',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      showBaseUrl: true,
+      models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b'],
+      docs: 'Groq exposes an OpenAI-compatible API at https://api.groq.com/openai/v1. Uses your Groq key only.',
+    },
+    {
+      id: 'together',
+      label: 'Together AI',
+      secret: true,
+      keyLabel: 'Together API key',
+      baseUrl: 'https://api.together.xyz/v1',
+      showBaseUrl: true,
+      models: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'google/gemma-2-9b-it'],
+      docs: 'Together AI exposes an OpenAI-compatible API at https://api.together.xyz/v1. Uses your Together key only.',
     },
     {
       id: 'fal',
-      label: 'fal.ai language model (fal-ai/any-llm)',
+      label: 'fal.ai (fal-ai/any-llm)',
       secret: true,
-      docs: 'Uses the fal.ai queue API with any chat model you specify, e.g. fal-ai/any-llm.',
+      keyLabel: 'fal.ai API key',
+      models: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct'],
+      docs: 'Uses the fal.ai queue API (fal-ai/any-llm) with the model name you specify. Uses your fal.ai key only.',
     },
   ],
   image: [
@@ -141,6 +222,24 @@ export const PROVIDERS = Object.freeze({
     },
   ],
 });
+
+/* Friendly provider names used in user-facing messages (never key material). */
+export const LLM_PROVIDER_LABELS = Object.freeze({
+  local: 'Local templates',
+  gemini: 'Gemini',
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  groq: 'Groq',
+  together: 'Together AI',
+  fal: 'fal.ai',
+});
+
+export function activeLlm(settings) {
+  const id = settings.llm?.provider || 'local';
+  const cfg = settings.llm?.providers?.[id] || {};
+  const entry = PROVIDERS.llm.find((p) => p.id === id) || null;
+  return { id, cfg, entry, label: LLM_PROVIDER_LABELS[id] || id };
+}
 
 export const PRODUCT_FIELDS = [
   { key: 'name', label: 'Product Name', required: true, placeholder: 'e.g. GlowDrop Hydrating Serum', multiline: false },

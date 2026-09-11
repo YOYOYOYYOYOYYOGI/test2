@@ -28,9 +28,34 @@ function mergeDeep(base, override) {
   return out;
 }
 
+function migrate(settings) {
+  // v1 stored a single top-level llm.apiKey/baseUrl/model. v2 keeps a separate
+  // credential set per provider so keys can never be mixed between services.
+  const llm = settings.llm;
+  if (llm && llm.provider && llm.providers && (llm.apiKey || llm.baseUrl || llm.model)) {
+    const id = llm.provider === 'local' ? 'openai' : llm.provider;
+    const target = llm.providers[id] || {};
+    // Legacy values are the user's actual saved configuration, so they win
+    // over the per-provider catalogue defaults.
+    if (llm.apiKey) target.apiKey = llm.apiKey;
+    if (llm.baseUrl) target.baseUrl = llm.baseUrl;
+    if (llm.model) target.model = llm.model;
+    llm.providers[id] = target;
+    delete llm.apiKey;
+    delete llm.baseUrl;
+    delete llm.model;
+  }
+  settings.version = 2;
+  return settings;
+}
+
 export async function getSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-  return mergeDeep(defaultSettings(), stored[STORAGE_KEYS.SETTINGS] || {});
+  const merged = migrate(mergeDeep(defaultSettings(), stored[STORAGE_KEYS.SETTINGS] || {}));
+  if ((stored[STORAGE_KEYS.SETTINGS] || {}).version !== 2) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: merged });
+  }
+  return merged;
 }
 
 export async function saveSettings(patch) {
@@ -43,11 +68,19 @@ export async function saveSettings(patch) {
 /* Only non-secret settings, for display/export in the UI. */
 export function publicSettingsView(settings) {
   const mask = (value) => (value ? '••••••••' : '');
+  const providers = {};
+  for (const [id, cfg] of Object.entries(settings.llm.providers || {})) {
+    providers[id] = {
+      apiKey: mask(cfg.apiKey),
+      model: cfg.model || '',
+      baseUrl: cfg.baseUrl || '',
+    };
+  }
   return {
     mode: settings.mode,
     proxyUrl: settings.proxyUrl,
     proxyKey: mask(settings.proxyKey),
-    llm: { provider: settings.llm.provider, model: settings.llm.model, baseUrl: settings.llm.baseUrl, apiKey: mask(settings.llm.apiKey) },
+    llm: { provider: settings.llm.provider, providers },
     image: { provider: settings.image.provider, model: settings.image.model, apiKey: mask(settings.image.apiKey) },
     video: { provider: settings.video.provider, model: settings.video.model, apiKey: mask(settings.video.apiKey), pollInterval: settings.video.pollInterval },
     defaults: settings.defaults,
@@ -221,7 +254,10 @@ export function requireConfig(settings) {
   const problems = [];
   if (settings.image.provider !== 'none' && !settings.image.apiKey) problems.push('image generation');
   if (settings.video.provider !== 'none' && !settings.video.apiKey) problems.push('video generation');
-  if (settings.llm.provider !== 'local' && !settings.llm.apiKey) problems.push('script generation (LLM)');
+  if (settings.llm.provider !== 'local') {
+    const llmKey = settings.llm.providers?.[settings.llm.provider]?.apiKey;
+    if (!llmKey) problems.push(`script generation (${settings.llm.provider})`);
+  }
   if (problems.length) {
     throw new ConfigurationError(
       'API credentials are missing.',

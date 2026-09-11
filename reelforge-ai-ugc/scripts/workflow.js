@@ -9,6 +9,7 @@ import { createProviders } from './providers/index.js';
 import { fetchImageAsDataUrl } from './providers/image.js';
 import { VIDEO_STATUS } from './providers/video.js';
 import { requestOriginPatterns, ensureOriginPermission } from './util.js';
+import { activeLlm } from './config.js';
 import { ConfigurationError, ValidationError, ProviderError, toReelForgeError } from './errors.js';
 import {
   productInfoMessages, extractJsonObject, mergeProductInfo,
@@ -25,6 +26,25 @@ function originPatternOf(rawUrl) {
   return `${url.protocol}//${url.host}/*`;
 }
 
+/* Host permissions for the SELECTED language provider only (keys never cross providers). */
+function llmOriginPatterns(settings) {
+  const { id, cfg } = activeLlm(settings);
+  if (id === 'local') return [];
+  if (id === 'fal') return falOrigins();
+  if (id === 'gemini') {
+    const base = cfg.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+    return [originPatternOf(base)];
+  }
+  // OpenAI-compatible providers (openai/openrouter/groq/together)
+  return cfg.baseUrl ? [originPatternOf(cfg.baseUrl)] : [];
+}
+
+/* Host permissions used by the OpenAI-compatible image/video adapters. */
+function openAiMediaOrigin(settings) {
+  const base = settings.llm.providers?.openai?.baseUrl || 'https://api.openai.com/v1';
+  return originPatternOf(base);
+}
+
 /* Request host permission for every host the chosen workflow step may contact. */
 export async function ensureActionPermissions(settings, kind) {
   const patterns = [];
@@ -32,16 +52,15 @@ export async function ensureActionPermissions(settings, kind) {
     if (settings.proxyUrl) patterns.push(originPatternOf(settings.proxyUrl));
   } else {
     if (kind === 'llm' || kind === 'all') {
-      if (settings.llm.provider === 'fal') patterns.push(...falOrigins());
-      if (settings.llm.provider === 'openai' && settings.llm.baseUrl) patterns.push(originPatternOf(settings.llm.baseUrl));
+      patterns.push(...llmOriginPatterns(settings));
     }
     if (kind === 'image' || kind === 'all') {
       if (settings.image.provider === 'fal') patterns.push(...falOrigins());
-      if (settings.image.provider === 'openai' && settings.llm.baseUrl) patterns.push(originPatternOf(settings.llm.baseUrl));
+      if (settings.image.provider === 'openai') patterns.push(openAiMediaOrigin(settings));
     }
     if (kind === 'video' || kind === 'all') {
       if (settings.video.provider === 'fal') patterns.push(...falOrigins());
-      if (settings.video.provider === 'openai' && settings.llm.baseUrl) patterns.push(originPatternOf(settings.llm.baseUrl));
+      if (settings.video.provider === 'openai') patterns.push(openAiMediaOrigin(settings));
     }
   }
   await requestOriginPatterns([...new Set(patterns)]);

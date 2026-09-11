@@ -114,7 +114,81 @@ function entryFor(kind, id) {
   return catalog(kind).find((p) => p.id === id);
 }
 
+function keyField({ id, label, savedValue }) {
+  const keyInput = el('input', {
+    type: 'password', id, autocomplete: 'off',
+    placeholder: savedValue ? 'Saved ••••••••  (leave blank to keep)' : label,
+  });
+  const clearBtn = el('button', {
+    class: 'btn btn-small btn-danger', type: 'button',
+    onClick: () => {
+      keyInput.value = '';
+      keyInput.dataset.cleared = '1';
+      keyInput.placeholder = 'Saved key will be removed on Save';
+      keyInput.focus();
+    },
+  }, 'Clear saved key');
+  return el('div', { class: 'field' },
+    el('label', { for: id }, label),
+    el('div', { class: 'key-row' }, keyInput, clearBtn),
+    el('p', { class: 'field-note', text: 'Stored only in this browser (chrome.storage.local). Never synced, never printed back, and only sent to this provider\u2019s own host.' }),
+  );
+}
+
+function renderLlmFields() {
+  const container = $('llm-fields');
+  container.replaceChildren();
+  const id = selectedProviderId('llm');
+  const entry = entryFor('llm', id);
+  const cfg = settings.llm.providers?.[id] || {};
+
+  if (entry.docs) container.append(el('p', { class: 'provider-docs', text: entry.docs }));
+
+  if (!entry.secret) {
+    container.append(el('p', { class: 'provider-docs', text: 'Offline mode: scripts, hooks and briefs are built locally with templates. Image and video generation still require their own providers below.' }));
+    return;
+  }
+
+  // Dedicated, provider-scoped key (never shared between providers).
+  container.append(keyField({
+    id: 'llm-key',
+    label: entry.keyLabel || `${entry.label} API key`,
+    savedValue: cfg.apiKey,
+  }));
+
+  if (entry.showBaseUrl) {
+    const baseInput = el('input', { type: 'url', id: 'llm-base', placeholder: entry.baseUrl });
+    baseInput.value = cfg.baseUrl || entry.baseUrl || '';
+    container.append(
+      el('div', { class: 'field' },
+        el('label', { for: 'llm-base' }, 'API endpoint (base URL)'),
+        baseInput,
+        el('p', { class: 'field-note', text: id === 'gemini'
+          ? 'Google\u2019s documented Gemini REST endpoint. Change it only for a Google-compatible proxy.'
+          : 'Pre-filled for this provider. Change it only for a self-hosted compatible API.' })),
+    );
+  }
+
+  const listId = 'llm-models-list';
+  const modelInput = el('input', {
+    type: 'text', id: 'llm-model', list: entry.models?.length ? listId : undefined,
+    placeholder: entry.models?.[0] || 'model name',
+    value: cfg.model || entry.models?.[0] || '',
+  });
+  container.append(
+    el('div', { class: 'field' },
+      el('label', { for: 'llm-model' }, id === 'fal' ? 'fal any-llm model name' : 'Model'),
+      modelInput,
+      entry.models?.length ? el('datalist', { id: listId }, ...entry.models.map((m) => el('option', { value: m }))) : null,
+      id === 'gemini'
+        ? el('p', { class: 'field-note', text: 'Pick a Gemini model (stable 2.5 aliases recommended).' })
+        : null),
+  );
+}
+
 function renderKindFields(kind) {
+  if (kind === 'llm') return renderLlmFields();
+
   const container = $(`${kind}-fields`);
   container.replaceChildren();
   const id = selectedProviderId(kind);
@@ -124,39 +198,11 @@ function renderKindFields(kind) {
   if (entry.docs) container.append(el('p', { class: 'provider-docs', text: entry.docs }));
 
   if (entry.secret) {
-    const keyInput = el('input', {
-      type: 'password', id: `${kind}-key`, autocomplete: 'off',
-      placeholder: savedSection.apiKey ? 'Saved ••••••••  (leave blank to keep)' : 'API key',
-    });
-    const clearBtn = el('button', {
-      class: 'btn btn-small btn-danger', type: 'button',
-      onClick: () => {
-        keyInput.value = '';
-        keyInput.dataset.cleared = '1';
-        keyInput.placeholder = 'Saved key will be removed on Save';
-        keyInput.focus();
-      },
-    }, 'Clear saved key');
-    container.append(
-      el('div', { class: 'field' },
-        el('label', { for: `${kind}-key` }, 'API key'),
-        el('div', { class: 'key-row' }, keyInput, clearBtn),
-        el('p', { class: 'field-note', text: 'Stored only in this browser (chrome.storage.local). Never synced, never printed back.' })),
-    );
-  } else {
-    container.append(el('p', { class: 'provider-docs', text: 'Offline mode: scripts and hooks are built locally with templates. Image and video generation still require their own providers below.' }));
-  }
-
-  // OpenAI-compatible base URL (shared across kinds; editable in every OpenAI group).
-  if (id === 'openai') {
-    const baseInput = el('input', { type: 'url', id: `${kind}-base`, placeholder: 'https://api.openai.com/v1' });
-    baseInput.value = settings.llm.baseUrl || 'https://api.openai.com/v1';
-    container.append(
-      el('div', { class: 'field' },
-        el('label', { for: `${kind}-base` }, 'OpenAI-compatible base URL (shared)'),
-        baseInput,
-        el('p', { class: 'field-note', text: 'Works with OpenAI, OpenRouter, Groq, Together, local LLM servers, etc.' })),
-    );
+    container.append(keyField({
+      id: `${kind}-key`,
+      label: 'API key',
+      savedValue: savedSection.apiKey,
+    }));
   }
 
   // Model picker
@@ -172,27 +218,11 @@ function renderKindFields(kind) {
         el('label', { for: `${kind}-model` }, 'Model / endpoint'),
         modelInput, dataList),
     );
-  } else if (kind === 'llm' && id === 'fal') {
-    const modelInput = el('input', {
-      type: 'text', id: 'llm-model', placeholder: 'openai/gpt-4o-mini',
-      value: savedSection.model || 'openai/gpt-4o-mini',
-    });
-    container.append(
-      el('div', { class: 'field' },
-        el('label', { for: 'llm-model' }, 'fal any-llm model name'),
-        modelInput,
-        el('p', { class: 'field-note', text: 'Any chat model exposed by fal-ai/any-llm, e.g. openai/gpt-4o-mini or meta-llama/llama-3.3-70b-instruct.' })),
-    );
-  } else if (kind === 'llm' && id === 'openai') {
-    const modelInput = el('input', {
-      type: 'text', id: 'llm-model', placeholder: 'gpt-4o-mini',
-      value: savedSection.model || 'gpt-4o-mini',
-    });
-    container.append(
-      el('div', { class: 'field' },
-        el('label', { for: 'llm-model' }, 'Chat model name'),
-        modelInput),
-    );
+  }
+
+  if (kind === 'image' && id === 'openai') {
+    const base = settings.llm.providers?.openai?.baseUrl || 'https://api.openai.com/v1';
+    container.append(el('p', { class: 'field-note', text: `Uses the OpenAI endpoint configured under the language model section (${base}).` }));
   }
 
   if (kind === 'video') {
@@ -221,11 +251,29 @@ function collectPatch() {
     return patch;
   }
 
-  patch.llm = { provider: selectedProviderId('llm') };
+  const llmId = selectedProviderId('llm');
+  patch.llm = { provider: llmId, providers: {} };
   patch.image = { provider: selectedProviderId('image') };
   patch.video = { provider: selectedProviderId('video') };
 
-  for (const kind of ['llm', 'image', 'video']) {
+  // Language provider: key/model/base are stored per provider, so switching
+  // never reuses one service's key for another.
+  const llmProviderPatch = {};
+  const llmKey = $('llm-key');
+  if (llmKey) {
+    if (llmKey.dataset.cleared) llmProviderPatch.apiKey = '';
+    else if (llmKey.value.trim()) llmProviderPatch.apiKey = llmKey.value.trim();
+  }
+  const llmModel = $('llm-model');
+  if (llmModel && llmModel.value.trim()) llmProviderPatch.model = llmModel.value.trim();
+  const llmBase = $('llm-base');
+  if (llmBase && llmBase.value.trim()) {
+    validateHttpUrl(llmBase.value.trim());
+    llmProviderPatch.baseUrl = llmBase.value.trim().replace(/\/+$/, '');
+  }
+  if (llmId !== 'local') patch.llm.providers[llmId] = llmProviderPatch;
+
+  for (const kind of ['image', 'video']) {
     const keyInput = $(`${kind}-key`);
     if (keyInput) {
       if (keyInput.dataset.cleared) patch[kind].apiKey = '';
@@ -233,11 +281,6 @@ function collectPatch() {
     }
     const modelInput = $(`${kind}-model`);
     if (modelInput && modelInput.value.trim()) patch[kind].model = modelInput.value.trim();
-    const baseInput = $(`${kind}-base`);
-    if (baseInput && baseInput.value.trim()) {
-      validateHttpUrl(baseInput.value.trim());
-      patch.llm.baseUrl = baseInput.value.trim().replace(/\/+$/, '');
-    }
   }
   const poll = $('video-poll');
   if (poll) patch.video.pollInterval = Math.min(30, Math.max(3, Number(poll.value) || 5));
@@ -266,7 +309,23 @@ function effectiveSettings() {
     else if (key.value.trim()) merged.proxyKey = key.value.trim();
     return merged;
   }
-  for (const kind of ['llm', 'image', 'video']) {
+  const llmId = selectedProviderId('llm');
+  merged.llm.provider = llmId;
+  if (llmId !== 'local') {
+    const llmCfg = merged.llm.providers[llmId] || {};
+    const llmKey = $('llm-key');
+    if (llmKey) {
+      if (llmKey.dataset.cleared) llmCfg.apiKey = '';
+      else if (llmKey.value.trim()) llmCfg.apiKey = llmKey.value.trim();
+    }
+    const llmModel = $('llm-model');
+    if (llmModel && llmModel.value.trim()) llmCfg.model = llmModel.value.trim();
+    const llmBase = $('llm-base');
+    if (llmBase && llmBase.value.trim()) llmCfg.baseUrl = llmBase.value.trim().replace(/\/+$/, '');
+    merged.llm.providers[llmId] = llmCfg;
+  }
+
+  for (const kind of ['image', 'video']) {
     merged[kind].provider = selectedProviderId(kind);
     const keyInput = $(`${kind}-key`);
     if (keyInput) {
@@ -275,8 +334,6 @@ function effectiveSettings() {
     }
     const modelInput = $(`${kind}-model`);
     if (modelInput && modelInput.value.trim()) merged[kind].model = modelInput.value.trim();
-    const baseInput = $(`${kind}-base`);
-    if (baseInput && baseInput.value.trim()) merged.llm.baseUrl = baseInput.value.trim().replace(/\/+$/, '');
   }
   const poll = $('video-poll');
   if (poll) merged.video.pollInterval = Math.min(30, Math.max(3, Number(poll.value) || 5));

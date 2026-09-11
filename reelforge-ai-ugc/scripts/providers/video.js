@@ -240,8 +240,10 @@ export function createVideoProvider(settings) {
   switch (settings.video.provider) {
     case 'fal':
       return new FalVideoProvider(settings.video);
-    case 'openai':
-      return new OpenAiVideoProvider({ ...settings.video, baseUrl: settings.llm.baseUrl || 'https://api.openai.com/v1' });
+    case 'openai': {
+      const openaiBase = settings.llm.providers?.openai?.baseUrl || 'https://api.openai.com/v1';
+      return new OpenAiVideoProvider({ ...settings.video, baseUrl: openaiBase });
+    }
     default:
       throw new ConfigurationError(`Unknown video provider: ${settings.video.provider}`);
   }

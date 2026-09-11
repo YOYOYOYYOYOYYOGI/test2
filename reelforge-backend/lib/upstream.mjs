@@ -212,6 +212,46 @@ export async function openAiVideoStatus(env, externalId) {
   return data;
 }
 
+/* ---------------- Google Gemini (native REST) ---------------- */
+
+function geminiBase(env) {
+  return (env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+}
+function geminiHeaders(env) {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not configured on the server.');
+  return { 'x-goog-api-key': env.GEMINI_API_KEY, 'Content-Type': 'application/json' };
+}
+function toGeminiBody(messages, { json = false, maxTokens = 1024 } = {}) {
+  const system = messages.filter((m) => m.role === 'system').map((m) => m.content).filter(Boolean).join('\n\n');
+  const contents = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+  const generationConfig = { temperature: 0.8, maxOutputTokens: maxTokens };
+  if (json) generationConfig.responseMimeType = 'application/json';
+  const body = { contents, generationConfig };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  return body;
+}
+
+export async function geminiChat(env, messages, opts = {}) {
+  const model = env.LLM_MODEL || 'gemini-2.5-flash';
+  const url = `${geminiBase(env)}/models/${encodeURIComponent(model)}:generateContent`;
+  const { data } = await jsonFetch(url, {
+    method: 'POST',
+    headers: geminiHeaders(env),
+    body: JSON.stringify(toGeminiBody(messages, opts)),
+  });
+  const candidate = data?.candidates?.[0];
+  const text = (candidate?.content?.parts || []).map((p) => p.text || '').join('').trim();
+  if (!text) {
+    if (candidate?.finishReason === 'SAFETY' || data?.promptFeedback?.blockReason) {
+      throw new Error('Gemini blocked the request with a safety filter.');
+    }
+    throw new Error('Gemini returned an empty response.');
+  }
+  return text;
+}
+
 /* ---------------- Shared helpers ---------------- */
 
 export async function downloadAsDataUrl(url, { headers = {}, timeoutMs = 180000 } = {}) {
@@ -231,6 +271,17 @@ export async function downloadAsDataUrl(url, { headers = {}, timeoutMs = 180000 
 
 export async function ping(env, kind) {
   if (kind === 'llm') {
+    if (env.LLM_PROVIDER === 'gemini') {
+      try {
+        const { status } = await jsonFetch(`${geminiBase(env)}/models?pageSize=1`, { headers: geminiHeaders(env) });
+        return `Google Gemini key accepted (HTTP ${status}).`;
+      } catch (err) {
+        if (err.status === 400 || err.status === 401 || err.status === 403) {
+          throw new Error('Gemini rejected the API key.');
+        }
+        throw err;
+      }
+    }
     if (env.LLM_PROVIDER === 'fal') {
       // Cheap auth probe: a fake request id is 404 with a good key and 401 with a bad one.
       try {

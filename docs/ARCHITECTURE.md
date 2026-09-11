@@ -16,7 +16,7 @@ reelforge-ai-ugc/                 Manifest V3 extension (shipped)
 │   ├── workflow.js               Orchestration: brief/script/hooks/creator/video flows + polling
 │   └── providers/
 │       ├── index.js              Factory selecting direct or proxy adapters from settings
-│       ├── llm.js                OpenAI-compatible chat + fal any-llm adapters
+│       ├── llm.js                Native Gemini chat, OpenAI-compatible chat, fal any-llm
 │       ├── image.js              fal Flux/Kontext/Seedream + OpenAI image adapters
 │       ├── video.js              fal queue video + OpenAI video adapters (submit/poll/download)
 │       └── proxy.js              Adapters that call the secure backend contract
@@ -52,6 +52,16 @@ UI → proxy.js adapter → net-relay → HTTPS backend (X-ReelForge-Key)
 
 ## Real API contracts implemented
 
+- **Google Gemini (native)** —
+  `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+  with the `x-goog-api-key` header (never a query parameter, never a Bearer
+  token); system prompt maps to `systemInstruction`, assistant turns to
+  `role: "model"`, JSON output uses
+  `generationConfig.responseMimeType: "application/json"`; key validation via
+  `GET /v1beta/models?pageSize=1`. HTTP 400 `API_KEY_INVALID`/`API_KEY_EXPIRED`
+  and 401/403 are reported as "Gemini connection failed — please check your
+  Gemini API key." Each provider holds its own `{apiKey, baseUrl, model}`
+  under `llm.providers.<id>`, so keys can never be sent to another host.
 - **fal.ai queue** — `POST https://queue.fal.run/{endpoint}` returns
   `request_id/status_url/response_url/cancel_url`; `GET .../status?logs=1`
   returns `IN_QUEUE | IN_PROGRESS | COMPLETED | FAILED`; `GET .../requests/{id}`

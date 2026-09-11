@@ -53,6 +53,14 @@ script-src 'self'; object-src 'self'; base-uri 'self'
 - Settings forms never write saved keys back into inputs; password fields stay
   blank with a "Saved" placeholder, and a Clear button removes a stored key.
 - The settings page exposes a masked view only; nothing logs keys.
+- Language credentials are stored per provider
+  (`llm.providers.{gemini,openai,openrouter,groq,together,fal}.apiKey`) and the
+  adapter for the selected provider only ever sends its own key to its own
+  origin (Gemini uses the native `x-goog-api-key` header against
+  `generativelanguage.googleapis.com`, never a Bearer token; OpenAI-shaped
+  providers use Bearer against their own base URL). Auth-failure messages name
+  the provider and never contain key material; automated tests assert the
+  isolation on captured request traffic.
 - Team distribution is designed around `reelforge-backend`, where keys never
   reach the extension package.
 

@@ -41,9 +41,13 @@ Keys are stored only in `chrome.storage.local` for this extension (never synced
 to your Google account) and sent straight to the API origins you choose. Host
 permission is requested per origin, on demand.
 
-- **Language model (scripts, hooks, brief):** offline templates (no key),
-  OpenAI-compatible chat APIs (`/chat/completions` — works with OpenAI,
-  OpenRouter, Groq, Together, local LLM servers), or fal.ai `fal-ai/any-llm`.
+- **Language model (scripts, hooks, brief):** **Google Gemini** through
+  Google's native API (`models/{model}:generateContent` with the
+  `x-goog-api-key` header), offline templates (no key), OpenAI-compatible chat
+  APIs (`/chat/completions` — OpenAI, OpenRouter, Groq, Together, local LLM
+  servers), or fal.ai `fal-ai/any-llm`. Each provider stores its own key,
+  which is sent only to that provider's host; use the per-section **Test
+  Language Connection** button to verify.
 - **Image (AI creator):** fal.ai Flux Kontext/Seedream (the product image is
   passed as a visual reference) or an OpenAI-compatible images API.
 - **Video:** fal.ai image-to-video models (Kling, MiniMax, Wan, Veo) or the

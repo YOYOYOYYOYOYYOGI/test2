@@ -10,10 +10,22 @@ real extension pages/modules in a real browser with a small **test-only**
 
 ## Suites
 
-### 1. `node tests/unit-node.mjs` (~325 assertions)
+### 1. `node tests/unit-node.mjs` (~370 assertions)
 
 - Six-section offline script and hook generation, labelling/parsing round trips,
   JSON extraction from LLM output, prompt builders.
+- v2 settings shape: catalogue order
+  (local, gemini, openai, openrouter, groq, together, fal), per-provider
+  credential slots, v1→v2 migration (legacy shared `llm.apiKey/baseUrl/model`
+  moves into the selected provider slot only), idempotency, key masking.
+- Native Gemini adapter against an HTTP mock implementing
+  `models/:model:generateContent` and `models` listing: `x-goog-api-key`
+  header (never Bearer), `systemInstruction`, role mapping,
+  `responseMimeType`, exact "Gemini connection failed…" error on
+  `API_KEY_INVALID`, safety-block and empty-response handling; OpenAI/Groq
+  adapters use Bearer and their own exact error strings; cross-host key
+  isolation is asserted on captured traffic.
+- Backend parity: `geminiChat` and the gemini `ping` branch.
 - Service worker message wiring through the real relay against a local HTTP mock
   (allow/deny checks).
 - The real `reelforge-backend` against a fal-shaped localhost mock: health,
@@ -22,12 +34,13 @@ real extension pages/modules in a real browser with a small **test-only**
 - Manifest v3 validation, referenced assets, CSP, minimal permissions.
 - Full source security audit (see SECURITY-AUDIT.md).
 
-### 2. `node tests/run-e2e.mjs` (~49 browser checks)
+### 2. `node tests/run-e2e.mjs` (~64 browser checks)
 
 Starts: a TLS mock of the fal queue API (mapped via `/etc/hosts` to
-`queue.fal.run`, self-signed cert + `--ignore-certificate-errors`), the real
-backend, and a static server that injects a test-only `chrome.*` shim into the
-real popup/settings pages. It then drives the actual UI:
+`queue.fal.run`, self-signed cert + `--ignore-certificate-errors`), a plain
+HTTP mock of the native Gemini API on `127.0.0.1:8812` (`tests/mock-gemini.mjs`),
+the real backend, and a static server that injects a test-only `chrome.*` shim
+into the real popup/settings pages. It then drives the actual UI:
 
 - First-run config warning; invalid image rejection; product & creator upload
   previews; creator removal.
@@ -40,6 +53,13 @@ real popup/settings pages. It then drives the actual UI:
   seekable-range fallback) → real file download → history → reopen after a full
   page reload (IndexedDB cache) → edit-script focus → create-another reset.
 - Uploaded-creator workflow records `creatorSource: 'upload'`.
+- Gemini scenario: bad key shows the exact
+  "Gemini connection failed — please check your Gemini API key." banner and
+  never echoes the key; good key passes Test Language Connection; marketing
+  brief, six hooks and the six-section script are all generated through the
+  native `:generateContent` endpoint; mock telemetry proves every request used
+  `x-goog-api-key` (no Authorization header), the selected model path,
+  `responseMimeType` and `systemInstruction`.
 - Proxy mode: configure via the real settings UI → backend test → brief →
   image → script → auto-creator and video completed server-side → download
   through the backend content route.

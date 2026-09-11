@@ -23,7 +23,7 @@ import { Readable } from 'node:stream';
 import {
   falChat, falImage, falVideoInput, falSubmit, falAwait, falStatus, falResult, extractFalVideoUrl,
   openAiChat, openAiImage, openAiSubmitVideo, openAiVideoStatus, openAiHeaders, openAiBase,
-  downloadAsDataUrl, ping,
+  downloadAsDataUrl, ping, geminiChat,
 } from './lib/upstream.mjs';
 
 /* ---------- environment (.env is optional) ---------- */
@@ -220,7 +220,9 @@ const server = http.createServer(async (req, res) => {
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const text = (env.LLM_PROVIDER === 'fal')
         ? await falChat(env, messages, { json: !!body.json, maxTokens: body.maxTokens, model: body.model })
-        : await openAiChat(env, messages, { json: !!body.json, maxTokens: body.maxTokens });
+        : (env.LLM_PROVIDER === 'gemini')
+          ? await geminiChat(env, messages, { json: !!body.json, maxTokens: body.maxTokens })
+          : await openAiChat(env, messages, { json: !!body.json, maxTokens: body.maxTokens });
       return sendJson(res, 200, { text });
     }
 

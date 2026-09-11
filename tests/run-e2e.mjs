@@ -49,7 +49,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- servers ---------- */
 let mockProc;
+let mockGeminiProc;
 let backendProc;
+const GEMINI_BASE = 'http://127.0.0.1:8812/v1beta';
 
 function startMockFal() {
   mockProc = spawn('sudo', ['-n', '-E', process.execPath, join(HERE, 'mock-fal.mjs')], {
@@ -58,6 +60,15 @@ function startMockFal() {
   mockProc.stdout.on('data', (d) => console.log('[mock-fal]', d.toString().trim()));
   mockProc.stderr.on('data', (d) => console.log('[mock-fal-err]', d.toString().trim()));
   return sleep(1000);
+}
+function startMockGemini() {
+  mockGeminiProc = spawn(process.execPath, [join(HERE, 'mock-gemini.mjs')], {
+    env: { ...process.env, MOCK_GEMINI_KEY: 'test-gemini-key', MOCK_GEMINI_PORT: '8812' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  mockGeminiProc.stdout.on('data', (d) => console.log('[mock-gemini]', d.toString().trim()));
+  mockGeminiProc.stderr.on('data', (d) => console.log('[mock-gemini-err]', d.toString().trim()));
+  return sleep(700);
 }
 function startBackend() {
   backendProc = spawn(process.execPath, [join(ROOT, 'reelforge-backend', 'server.mjs')], {
@@ -77,6 +88,7 @@ function startBackend() {
 async function main() {
   // Clean up any leftover dev servers from previous (debug) runs.
   spawnSync('sudo', ['-n', 'pkill', '-f', 'mock-fal.mjs']);
+  spawnSync('pkill', ['-f', 'mock-gemini[.]mjs']);
   spawnSync('pkill', ['-f', 'reelforge-backend/server.mjs']);
   await sleep(600);
 
@@ -85,15 +97,21 @@ async function main() {
   mkdirSync(DOWNLOADS, { recursive: true });
 
   await startMockFal();
+  await startMockGemini();
   await startBackend();
   const staticServer = await startStaticServer();
 
   const cleanup = () => {
     try { staticServer.close(); } catch {}
+    mockGeminiProc?.kill();
     backendProc?.kill();
-    // Bracket trick so the pkill pattern doesn't match the command itself.
+    // Bracket trick so the pkill patterns don't match the command themselves.
     spawnSync('sudo', ['-n', 'pkill', '-f', 'mock-fal[.]mjs']);
+    spawnSync('pkill', ['-f', 'mock-gemini[.]mjs']);
   };
+  if (!(await truthy('Mock Gemini /__hits reachable', async () => {
+    try { return (await fetch('http://127.0.0.1:8812/__hits')).ok; } catch { return false; }
+  }, { tries: 20 }))) throw new Error('mock gemini did not start');
   if (!(await truthy('Backend /health reachable', async () => {
     try { return (await fetch('http://127.0.0.1:8787/health')).ok; } catch { return false; }
   }, { tries: 20 }))) throw new Error('backend did not start');
@@ -273,7 +291,7 @@ async function main() {
     await clearAll(page);
     await seedSettings(page, {
       mode: 'direct',
-      llm: { provider: 'fal', apiKey: 'test-fal-key', model: 'openai/gpt-4o-mini' },
+      llm: { provider: 'fal', providers: { fal: { apiKey: 'test-fal-key', model: 'openai/gpt-4o-mini' } } },
       image: { provider: 'fal', apiKey: 'test-fal-key', model: 'fal-ai/flux/kontext/max' },
       video: { provider: 'fal', apiKey: 'test-fal-key', model: 'fal-ai/kling-video/v2/master/image-to-video', pollInterval: 1 },
     });
@@ -418,6 +436,97 @@ async function main() {
   }
 
   /* ============================================================= */
+  /* S2c: Google Gemini native provider (keys never cross hosts)     */
+  /* ============================================================= */
+  {
+    const gemSeed = (key) => ({
+      mode: 'direct',
+      llm: {
+        provider: 'gemini',
+        providers: { gemini: { apiKey: key, baseUrl: GEMINI_BASE, model: 'gemini-2.5-flash' } },
+      },
+      image: { provider: 'fal', apiKey: 'test-fal-key', model: 'fal-ai/flux/kontext/max' },
+      video: { provider: 'fal', apiKey: 'test-fal-key', model: 'fal-ai/kling-video/v2/master/image-to-video', pollInterval: 1 },
+    });
+
+    // Negative path through the real settings page: wrong Gemini key.
+    {
+      const settingsPage = await openSettings();
+      await seedSettings(settingsPage, gemSeed('wrong-gemini-key'));
+      await settingsPage.reload();
+      await sleep(300);
+      const providerId = await settingsPage.$eval('#llm-provider', (el) => el.value);
+      check('Settings selects Google Gemini in the provider list', providerId === 'gemini', providerId);
+      await settingsPage.click('#btn-test-llm');
+      const bad = await truthy('Settings: bad Gemini key shows the exact Gemini error', () => settingsPage.$eval(
+        '#save-status', (el) => /Gemini connection failed — please check your Gemini API key\./.test(el.textContent),
+      ), { tries: 20 });
+      check('Gemini auth error names Gemini (never a raw OpenAI string)', !!bad);
+      const notEchoed = await settingsPage.$eval('#llm-key', (el) => el.value === '');
+      check('The bad Gemini key is never echoed into the form', notEchoed);
+      await settingsPage.close();
+    }
+
+    // Positive path: brief, hooks and script all generated through Gemini.
+    const page = await openPopup();
+    await resetWorkflow(page);
+    await seedSettings(page, gemSeed('test-gemini-key'));
+    await page.reload();
+    await sleep(300);
+    check('Config warning hidden with Gemini configured', await page.$eval('#config-warning', (el) => el.classList.contains('hidden')));
+
+    const settingsTarget = browser.waitForTarget((t) => t.type() === 'page' && t.url().includes('settings.html'), { timeout: 8000 });
+    await page.click('#btn-settings');
+    const settingsPage = await (await settingsTarget).page();
+    await sleep(300);
+    check('Settings provider order starts local then gemini', await settingsPage.$eval('#llm-provider', (el) => {
+      const ids = [...el.options].map((o) => o.value);
+      return ids[0] === 'local' && ids[1] === 'gemini' && ids[2] === 'openai';
+    }));
+    await settingsPage.click('#btn-test-llm');
+    const llmOk = await truthy('Settings: Gemini language connection test passes', () => settingsPage.$eval(
+      '#save-status', (el) => /accepted|Connected/i.test(el.textContent),
+    ), { tries: 20 });
+    check('Gemini test connection succeeds against the native API', !!llmOk);
+    const masked = await settingsPage.$eval('#llm-key', (el) => el.value === '' && /Saved/.test(el.placeholder));
+    check('Gemini key masked in the settings form', masked);
+    await settingsPage.screenshot({ path: join(SHOTS, '05-settings-gemini.png') });
+    await settingsPage.close();
+
+    await page.$eval('#field-name', (el) => { el.value = 'GlowDrop Hydrating Serum'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.$eval('#field-description', (el) => { el.value = 'A hydrating face serum.'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.click('#btn-generate-brief');
+    await truthy('Gemini fills the marketing brief fields', () => page.$eval('#field-audience', (el) => el.value.length > 5), { tries: 30 });
+    const offer = await page.$eval('#field-offer', (el) => el.value);
+    check('Gemini brief generation filled the offer field', /20/.test(offer), offer);
+
+    await page.click('#btn-generate-hooks');
+    const hookCount = await truthy('Gemini generates six hook chips', () => page.$$eval('.hook-chip', (els) => els.length), { tries: 30 });
+    check('Six hooks returned through the Gemini native API', hookCount === 6, String(hookCount));
+
+    await page.click('#btn-generate-script');
+    await truthy('Gemini generates the script with all sections', () => page.$eval(
+      '#script', (t) => /CTA/.test(t.value) && /GlowDrop|hydrating/i.test(t.value),
+    ), { tries: 30 });
+    check('Script generated through Google Gemini', true);
+    await page.screenshot({ path: join(SHOTS, '05b-gemini-script.png') });
+    await page.close();
+
+    // Server-side proof of per-provider isolation.
+    const hits = await (await fetch('http://127.0.0.1:8812/__hits')).json();
+    check('Gemini host received at least one generateContent + models probe',
+      hits.some((h) => h.method === 'POST') && hits.some((h) => h.method === 'GET' && /\/models/.test(h.path)),
+      JSON.stringify(hits.map((h) => `${h.method} ${h.path}`)));
+    check('Gemini host NEVER received an Authorization/Bearer header', hits.length > 0 && hits.every((h) => !h.hadBearer));
+    check('Gemini calls posted to the selected native model path',
+      hits.some((h) => h.method === 'POST' && h.model === 'gemini-2.5-flash'));
+    check('Gemini JSON requests used generationConfig.responseMimeType',
+      hits.filter((h) => h.method === 'POST').some((h) => h.jsonMode));
+    check('Gemini requests mapped the system prompt to systemInstruction',
+      hits.filter((h) => h.method === 'POST').some((h) => h.hasSystemInstruction));
+  }
+
+  /* ============================================================= */
   /* S3: secure backend proxy mode through the REAL backend          */
   /* ============================================================= */
   {
@@ -504,7 +613,7 @@ async function main() {
     await resetWorkflow(page);
     await seedSettings(page, {
       mode: 'direct',
-      llm: { provider: 'openai', apiKey: 'whatever', baseUrl: 'http://127.0.0.1:8799/v1', model: 'gpt-4o-mini' },
+      llm: { provider: 'openai', providers: { openai: { apiKey: 'whatever', baseUrl: 'http://127.0.0.1:8799/v1', model: 'gpt-4o-mini' } } },
       image: { provider: 'fal', apiKey: 'test-fal-key' },
       video: { provider: 'fal', apiKey: 'test-fal-key' },
     });
@@ -550,6 +659,7 @@ main().catch((err) => {
   console.error('HARNESS ERROR', err);
   try {
     spawnSync('sudo', ['-n', 'pkill', '-f', 'mock-fal[.]mjs']);
+    spawnSync('pkill', ['-f', 'mock-gemini[.]mjs']);
   } catch {}
   process.exit(2);
 });

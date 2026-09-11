@@ -33,10 +33,12 @@ In the extension's Settings choose **Secure backend proxy**, set
 | --- | --- | --- |
 | `PORT` | `8787` | Listening port |
 | `PROXY_KEY` | _(empty)_ | Shared secret required in `X-ReelForge-Key`. Generate with `openssl rand -hex 32` |
-| `LLM_PROVIDER` | `openai` | `openai` (any OpenAI-compatible chat API) or `fal` |
+| `LLM_PROVIDER` | `openai` | `gemini` (native Google API), `openai` (any OpenAI-compatible chat API) or `fal` |
+| `GEMINI_API_KEY` | – | Google Gemini key (used when `LLM_PROVIDER=gemini`) |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Native Gemini REST endpoint |
 | `OPENAI_API_KEY` | – | Key for the OpenAI-compatible host |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API base URL |
-| `LLM_MODEL` | `gpt-4o-mini` | Chat model name |
+| `LLM_MODEL` | `gpt-4o-mini` | Chat model name (with Gemini: e.g. `gemini-2.5-flash`) |
 | `IMAGE_PROVIDER` | `fal` | `fal` or `openai` |
 | `IMAGE_MODEL` | `gpt-image-1` | OpenAI image model |
 | `VIDEO_PROVIDER` | `fal` | `fal` or `openai` |

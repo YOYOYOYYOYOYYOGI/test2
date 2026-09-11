@@ -157,7 +157,8 @@ export function createImageProvider(settings) {
     case 'fal':
       return new FalImageProvider(settings.image);
     case 'openai': {
-      const imgConfig = { ...settings.image, baseUrl: settings.llm.baseUrl || 'https://api.openai.com/v1' };
+      const openaiBase = settings.llm.providers?.openai?.baseUrl || 'https://api.openai.com/v1';
+      const imgConfig = { ...settings.image, baseUrl: openaiBase };
       return new OpenAiImageProvider(imgConfig);
     }
     default:

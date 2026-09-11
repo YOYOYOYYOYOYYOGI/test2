@@ -18,8 +18,10 @@ provider API keys inside the extension.
 1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
    choose `reelforge-ai-ugc/`.
 2. Open ReelForge, click the gear, configure providers
-   ([guide](docs/API-SETUP.md)). Offline templates cover scripts/hooks with no
-   key; image/video need fal.ai, an OpenAI-compatible API, or the secure backend.
+   ([guide](docs/API-SETUP.md)). Choose **Google Gemini** (native API) for
+   AI-written briefs, scripts and hooks, or use Local Templates with no key at
+   all; image/video need fal.ai, an OpenAI-compatible API, or the secure
+   backend. Each provider stores its own key, sent only to that provider.
 3. Fill product info, upload a product image, optionally upload a creator image,
    generate/script/hooks, then **Generate UGC Video**.
 4. Preview, download, or reuse the workflow from history.
@@ -32,18 +34,21 @@ Team deployment (keys kept on a server) → [`reelforge-backend/README.md`](reel
   permission; hosts are optional permissions requested on demand.
 - Single auditable network chokepoint (`scripts/net-relay.js`), strict CSP,
   secrets stored locally or behind the backend, no analytics or tracking.
-- Swappable provider layer (fal.ai, OpenAI-compatible, offline templates,
-  custom backend contract).
+- Swappable language layer (Local Templates, **Google Gemini** via its native
+  API, OpenAI, OpenRouter, Groq, Together AI, fal.ai) with per-provider keys,
+  plus fal.ai/OpenAI media providers and an offline-template fallback.
 - Local history with IndexedDB video caching, resumable asynchronous jobs,
   honest error handling (no fake success).
 
 ## Test results
 
-- `node tests/unit-node.mjs` — **325 assertions** (content modules, service
-  worker relay, full backend lifecycle, manifest & security audit).
-- `node tests/run-e2e.mjs` — **49 end-to-end browser checks** against a TLS mock
-  of the provider queue API and the real backend (uploads, both creator-image
-  branches, scripts/hooks, video lifecycle, downloads, history, error paths).
+- `node tests/unit-node.mjs` — **370 assertions** (content modules, service
+  worker relay, v1→v2 per-provider settings migration, native Gemini adapter
+  and key-isolation checks, full backend lifecycle, manifest & security audit).
+- `node tests/run-e2e.mjs` — **64 end-to-end browser checks** against a TLS mock
+  of the fal queue API, an HTTP mock of the native Gemini API and the real
+  backend (uploads, both creator-image branches, scripts/hooks/briefs through
+  Gemini, video lifecycle, downloads, history, per-provider error paths).
 
 See [`docs/TESTING.md`](docs/TESTING.md) for the short manual checklist to run
 once on a full desktop Chrome build.
