@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — ReelForge (UGC Video Generator)</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.6;color:#1a1a2e}
+  h1{font-size:1.6rem} h2{font-size:1.1rem;margin-top:1.8em}
+  .box{background:#f5f7fb;border:1px solid #dfe6f0;border-radius:10px;padding:16px 20px;margin:1.2em 0}
+  ul{padding-left:1.2em} li{margin:.35em 0}
+  .muted{color:#5a6478;font-size:.9rem}
+</style>
+</head>
+<body>
+<h1>Privacy Policy — ReelForge (UGC Video Generator)</h1>
+<p class="muted">Effective date: January 1, 2026 · Applies to the browser extension "ReelForge — AI UGC Video Generator".</p>
+
+<div class="box"><b>Short version:</b> ReelForge has no servers, no accounts and no analytics. Your data stays in your browser. The only network traffic is direct, encrypted (HTTPS) calls from your browser to the AI provider <i>you</i> choose, using <i>your own</i> API key.</div>
+
+<h2>What is stored, and where</h2>
+<ul>
+  <li>Your projects (script text, images you upload, generated storyboards, rendered audio/video), brand kit, knowledge base and settings are stored <b>locally in your browser</b> via <code>chrome.storage.local</code> and IndexedDB.</li>
+  <li>API keys you enter in Settings are stored only in your browser and are never transmitted anywhere except to the provider you selected.</li>
+  <li>Nothing is uploaded to us — the extension's publisher operates no servers and receives no data.</li>
+</ul>
+
+<h2>What leaves your computer</h2>
+<ul>
+  <li>When you trigger a generation, the content needed for that specific request (e.g. your script text, a product image) is sent <b>directly over HTTPS</b> to the AI provider you configured (e.g. OpenAI, Google, Anthropic, Stability, Replicate, fal.ai, ElevenLabs). Those requests are covered by the provider's own privacy policy.</li>
+  <li>If you enable the optional local backend mode, requests go to your own machine (<code>http://localhost</code>) instead.</li>
+  <li>The extension never contacts any other service, never loads remote code, and contains no tracking or telemetry.</li>
+</ul>
+
+<h2>Permissions</h2>
+<ul>
+  <li><b>storage / unlimitedStorage</b> — to keep your projects and media locally.</li>
+  <li><b>downloads</b> (optional, on export click) — to save finished MP4/PNG files to your disk.</li>
+  <li><b>Provider host permissions</b> — restricted to the AI API endpoints selectable in Settings.</li>
+</ul>
+
+<h2>Data sharing and sale</h2>
+<p>We do not sell, rent, share or monetize any user data. We have no access to it.</p>
+
+<h2>Contact</h2>
+<p>Open an issue at the project's GitHub repository for any privacy question or data-removal request (removal = uninstalling the extension, which deletes all locally stored data).</p>
+</body>
+</html>

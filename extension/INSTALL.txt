@@ -1,0 +1,47 @@
+INSTALL — UGC Video Generator (unpacked, developer load)
+=========================================================
+
+You have the complete, ready-to-load extension. No build step, no npm,
+no copying files — everything below is point-and-click.
+
+1) EXTRACT
+   Extract this archive anywhere you like, e.g. C:\Tools\UGC-Video-Generator
+   - Windows 11: right-click the .tar.gz → "Extract All" (twice: .gz then .tar),
+     or use 7-Zip.
+   - Windows 10: open Command Prompt in the download folder and run:
+         tar -xzf UGC-Video-Generator.tar.gz
+     or extract with 7-Zip / WinRAR.
+   - macOS / Linux: double-click, or: tar -xzf UGC-Video-Generator.tar.gz
+
+   You should now have a folder named "UGC-Video-Generator" that contains
+   manifest.json, src\ and icons\.
+
+2) LOAD IN CHROME (or Edge / Brave)
+   - Open:  chrome://extensions
+   - Turn ON "Developer mode" (toggle, top-right).
+   - Click "Load unpacked".
+   - Select the extracted "UGC-Video-Generator" folder (the one that directly
+     contains manifest.json).
+
+3) START USING IT
+   - Click the puzzle-piece icon in the toolbar → pin "ReelForge".
+   - Click the ReelForge icon → "Open Dashboard".
+   - Go to Settings first: choose your AI provider (OpenAI, Google Gemini,
+     Anthropic, …) and paste your own API key. Your key is stored locally in
+     your browser only (chrome.storage.local) and is sent only to the provider
+     you selected, over HTTPS.
+   - Create a project: paste your script, add product photos (and optionally a
+     creator/reference image), generate, preview, and export MP4.
+
+TROUBLESHOOTING
+- "Manifest file is missing or unreadable" → you selected the parent folder;
+  select the folder that directly contains manifest.json.
+- After updating files: click the refresh (↻) icon on the extension card in
+  chrome://extensions.
+- Everything is offline-first except the AI provider calls you configure.
+
+SECURITY SUMMARY
+Manifest V3 · no eval/dynamic code · no content scripts · no remote code ·
+permissions: storage, unlimitedStorage (downloads requested only when you
+export) · API hosts limited to the provider endpoints in Settings ·
+all API traffic over HTTPS.

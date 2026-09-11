@@ -57,11 +57,15 @@ UGC-Video-Generator/
 
 ### 1. Load the extension in Chrome
 
-1. **Download** `UGC-Video-Generator-CLEAN-v1.0.0.zip` and **extract** it.
-2. Open `chrome://extensions` in Chrome (Chrome **126+** required — the extension uses MP4 recording).
-3. Enable **Developer mode** (top-right toggle).
-4. Click **Load unpacked**.
-5. Select the extracted **`extension/`** folder.
+1. **Pick a download:**
+   - `UGC-Video-Generator.tar.gz` — the complete unpacked extension folder (extract → load unpacked), or
+   - `ReelForge-ChromeWebStore-v1.0.0.zip` — the Chrome Web Store upload package (manifest at ZIP root), or
+   - install normally once published on the Chrome Web Store (see `docs/cws/store-listing.md`).
+2. **Extract** the archive.
+3. Open `chrome://extensions` in Chrome (Chrome **126+** required — the extension uses MP4 recording).
+4. Enable **Developer mode** (top-right toggle).
+5. Click **Load unpacked**.
+6. Select the extracted **`UGC-Video-Generator/`** folder (it directly contains `manifest.json`).
 6. Click the ReelForge icon in the toolbar → **Open AI UGC Studio**.
 
 ### 2. Connect AI providers
