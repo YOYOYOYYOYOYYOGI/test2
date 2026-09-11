@@ -142,7 +142,7 @@ export async function bumpKB(id, field = 'uses') {
 
 export const DEFAULT_BRAND = {
   name: '', logoAssetId: null, colors: { primary: '#8b5cf6', secondary: '#ec4899', accent: '#22d3ee' },
-  fonts: { heading: 'Poppins, sans-serif', body: 'Inter, sans-serif' },
+  fonts: { heading: 'system-ui, sans-serif', body: 'system-ui, sans-serif' },
   website: '', cta: '', description: '', audience: '', defaultVoice: '', defaultStyle: 'realistic-ugc',
 };
 

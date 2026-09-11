@@ -25,8 +25,17 @@
   },
   "permissions": ["storage", "unlimitedStorage", "downloads"],
   "host_permissions": [
-    "https://*/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.stability.ai/*",
+    "https://api.replicate.com/*",
+    "https://*.replicate.delivery/*",
+    "https://fal.run/*",
+    "https://fal.media/*",
+    "https://api.elevenlabs.io/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
-  ]
+  ],
+  "optional_host_permissions": ["https://*/*"]
 }

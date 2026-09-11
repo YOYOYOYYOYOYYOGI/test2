@@ -154,15 +154,6 @@ export function dropzone({ accept = 'image/png,image/jpeg,image/webp', multiple 
   return el('div', {}, dz, input);
 }
 
-export function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
 /** Async <img> for an IndexedDB asset. */
 export function assetImg(assetId, alt = '') {
   const img = el('img', { alt, style: { opacity: '0', transition: 'opacity .25s' } });

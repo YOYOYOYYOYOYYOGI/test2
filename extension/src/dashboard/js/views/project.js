@@ -278,7 +278,18 @@ export async function renderProject(view, id, { setTopbar }) {
             const rec = await getAsset(project.render.videoAssetId);
             if (!rec) { toast('Rendered file missing — re-render.', 'error'); return; }
             const safe = (project.name || 'reelforge').replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '-');
-            downloadBlob(rec.blob, `${safe || 'reelforge'}-${fileStamp()}.${project.render.ext}`);
+            const filename = `${safe || 'reelforge'}-${fileStamp()}.${project.render.ext}`;
+            // Prefer the chrome.downloads API (streams large files to disk),
+            // with a plain anchor fallback when unavailable.
+            if (typeof chrome !== 'undefined' && chrome.downloads?.download) {
+              const url = URL.createObjectURL(rec.blob);
+              try {
+                await chrome.downloads.download({ url, filename, saveAs: true });
+                setTimeout(() => URL.revokeObjectURL(url), 120000);
+                return;
+              } catch { URL.revokeObjectURL(url); }
+            }
+            downloadBlob(rec.blob, filename);
           },
         }, icon('download'), 'Download video'),
         el('button', { class: 'btn', onclick: () => renderBtn.click() }, icon('refresh'), 'Re-render'),

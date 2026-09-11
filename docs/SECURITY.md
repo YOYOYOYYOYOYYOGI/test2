@@ -28,6 +28,6 @@ The extension ships with **no keys anywhere**: not in `manifest.json`, not in an
 
 ## Content Security
 
-- No `eval`, no remote code, no third-party scripts at runtime (Google Fonts stylesheet in the dashboard is cosmetic and the app degrades gracefully offline).
-- MV3 service worker; no content scripts at all.
+- **100% local code** — no remote JavaScript, no `eval`/`new Function`, no dynamic code loading (MV3 compliant), no content scripts, no web-accessible resources, default MV3 content-security-policy.
+- **Zero third-party runtime resources** — no CDN scripts, no webfonts, no analytics/telemetry. Even the icons are deterministic local PNGs with no metadata chunks.
 - All HTML interpolation goes through the DOM builder (`textContent` semantics); `escapeHtml` used for any string interpolation.

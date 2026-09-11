@@ -45,6 +45,22 @@ export async function renderSettings(view) {
         'Run the bundled backend (see /backend folder in the ZIP): ', el('code', { class: 'inline' }, 'cd backend && npm install && npm start'),
         ' — it proxies provider calls and injects keys from environment variables.'),
     ),
+    el('div', { id: 'direct-cfg', style: { display: s.mode === 'direct' ? 'block' : 'none', marginTop: '10px' } },
+      el('div', { class: 'note' },
+        'Direct mode can reach the built-in provider hosts (OpenAI, Anthropic, Gemini, Stability, Replicate, fal, ElevenLabs, localhost). ',
+        'Using a custom OpenAI-compatible endpoint (Groq, OpenRouter, LM Studio…) needs one optional permission.',
+        el('div', { style: { marginTop: '8px' } },
+          el('button', {
+            class: 'btn small',
+            onclick: async (e) => {
+              try {
+                const granted = await chrome.permissions.request({ origins: ['https://*/*'] });
+                toast(granted ? 'Custom endpoints allowed' : 'Not granted — custom endpoints will be blocked; use backend mode', granted ? 'success' : 'warn', 5000);
+              } catch (err) { toast(err.message, 'error'); }
+            },
+          }, 'Allow custom API endpoints (optional permission)')),
+      ),
+    ),
   );
   view.append(connCard);
 
@@ -56,6 +72,8 @@ export async function renderSettings(view) {
       connCard.querySelectorAll('.btn').forEach((x) => x.classList.remove('primary'));
       b.classList.add('primary');
       connCard.querySelector('#backend-cfg').style.display = mode === 'backend' ? 'block' : 'none';
+      const dc = connCard.querySelector('#direct-cfg');
+      if (dc) dc.style.display = mode === 'direct' ? 'block' : 'none';
     });
     b.title = sub;
     return b;

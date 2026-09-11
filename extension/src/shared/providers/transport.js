@@ -127,7 +127,7 @@ export async function providerFetch(category, path, { method = 'POST', body, hea
   return res;
 }
 
-/** Gemini authenticates with a query param — helper to build the path. */
-export function geminiPath(path, apiKey, method, model) {
-  return { path: `${path}?key=${encodeURIComponent(apiKey)}${method ? `&${method}` : ''}`, model };
+/** Gemini authenticates with a query param — helper for callers that build URLs manually. */
+export function withGeminiKey(path, apiKey) {
+  return `${path}?key=${encodeURIComponent(apiKey)}`;
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ReelForge — packaging script.
-# Builds UGC-Video-Generator.zip containing:
-#   extension/  backend/  docs/  README.md  LICENSE
+# Builds UGC-Video-Generator.zip containing ONLY what users need:
+#   extension/  backend (source only)  docs/  README.md  LICENSE
+# Excluded on purpose: dev scripts, lockfiles, node_modules, .env, OS noise.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,10 +18,8 @@ done
 zip -qr "${OUT}.zip" \
   extension \
   backend/src backend/package.json backend/README.md backend/.env.example \
-  docs README.md LICENSE scripts/package.sh
-
-# keep the zip lean: strip OS noise + any accidental .env
-zip -qd "${OUT}.zip" "*__MACOSX*" "*/.env" "*/.DS_Store" 2>/dev/null || true
+  docs README.md LICENSE \
+  -x "extension/scripts/*" "*package-lock.json" "*.sh" "*/.env" "*__MACOSX*" "*/.DS_Store"
 
 echo "Built ${OUT}.zip:"
 unzip -l "${OUT}.zip" | tail -3

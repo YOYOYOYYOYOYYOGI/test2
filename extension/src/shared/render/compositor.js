@@ -590,7 +590,7 @@ export class VideoCompositor {
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
     const fs = W * 0.085;
-    ctx.font = `900 ${fs}px Poppins, Inter, sans-serif`;
+    ctx.font = `900 ${fs}px system-ui, sans-serif`;
     const text = brand.cta || 'Shop Now';
     const words = text.split(/\s+/);
     const lines = [];

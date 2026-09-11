@@ -184,7 +184,7 @@ export function drawOnScreenText(ctx, { text, time, sceneDur, W, H, brand }) {
   ctx.scale(pop, pop);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `900 ${fs}px Poppins, Inter, system-ui, sans-serif`;
+  ctx.font = `900 ${fs}px system-ui, sans-serif`;
   const grad = ctx.createLinearGradient(-W / 2, 0, W / 2, 0);
   grad.addColorStop(0, brand?.colors?.primary || '#8b5cf6');
   grad.addColorStop(1, brand?.colors?.secondary || '#ec4899');
