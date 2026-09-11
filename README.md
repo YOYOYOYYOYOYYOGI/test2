@@ -19,9 +19,10 @@ server/
   server.js                 static host + JSON API gateway
   providers/
     index.js                provider registry and routing
-    openai-compatible.js     OpenAI-compatible LLM adapter
+    openai-compatible.js     multimodal LLM, vision, hooks and creator-image adapter
     elevenlabs.js            ElevenLabs TTS adapter
-    local-planner.js         deterministic, honest offline storyboard planner
+    replicate-video.js       replaceable image/video/lip-sync job adapter
+    local-planner.js         deterministic, honest offline storyboard and hook planner
   rendering/
     index.js                 renderer contract and server capability reporting
 .env.example                server-side provider configuration
@@ -29,7 +30,7 @@ server/
 
 The dashboard can be opened in a browser while developing (`http://localhost:8787`) or from Chrome via **Load unpacked** (`extension/`). The extension defaults to `http://localhost:8787/api`; change this in Settings if the gateway is hosted elsewhere.
 
-The creator pipeline accepts a user-uploaded model/creator image. If none is supplied, it automatically creates and stores a built-in UGC-style female creator fallback; when an OpenAI-compatible image provider is configured on the gateway, the same seam can generate a creator portrait server-side. Creator imagery is used for hook/problem/benefit/proof/CTA scenes while product imagery is used for product/demo scenes. A product brief plus images can generate a Reel script automatically using the six-beat `Hook → Problem → Product → Benefits → Proof / Result → CTA` structure.
+The creator pipeline accepts a user-uploaded model/creator image. If none is supplied, it requests a photoreal creator portrait from the configured secure image provider; it never substitutes a cartoon, SVG, CGI avatar or fake “AI” placeholder. Creator imagery is used for hook/problem/benefit/proof/CTA scenes while product imagery is used for product/demo scenes. A product brief plus images can generate a Reel script automatically using the six-beat `Hook → Problem → Product → Benefits → Proof / Result → CTA` structure.
 
 ## Run locally
 
@@ -38,7 +39,7 @@ npm run dev
 # open http://localhost:8787
 ```
 
-For AI providers, copy `.env.example` to `.env` and set keys in the **server environment only**. The browser never receives secret keys. Without a provider key, script analysis uses the transparent local planner; TTS generation reports that a provider must be configured rather than pretending to create audio.
+For AI providers, copy `.env.example` to `.env` and set keys in the **server environment only**. The browser never receives secret keys. Without a provider key, script analysis and hooks use transparent local planners; photoreal creator generation and AI scene video report a provider requirement instead of pretending to create realistic media.
 
 ## Load in Chrome
 
@@ -50,8 +51,10 @@ For AI providers, copy `.env.example` to `.env` and set keys in the **server env
 
 ## Provider setup
 
-- `OPENAI_API_KEY` + optional `OPENAI_BASE_URL` and `LLM_MODEL` enable script analysis through an OpenAI-compatible chat completion endpoint.
-- `ELEVENLABS_API_KEY` + optional `ELEVENLABS_VOICE_ID` enable server-side MP3 voice generation.
+- `OPENAI_API_KEY` + optional `OPENAI_BASE_URL`, `LLM_MODEL` and `IMAGE_MODEL` enable multimodal scene planning, product-image understanding, hook generation and photoreal creator generation.
+- `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` enable server-side MP3 voice generation.
+- `REPLICATE_API_TOKEN` + `REPLICATE_VIDEO_MODEL` or `REPLICATE_VIDEO_VERSION` enable scene-level image/video generation. Configure the model-specific input field names in `.env`; this adapter can pass creator/product reference images and generated voice audio to a model that supports them.
+- Use a provider/model that explicitly supports reference-image consistency and audio/lip-sync when those features are required. The app does not claim lip-sync for a model that does not support it.
 - `ffmpeg` is used for MP4 delivery when installed. The extension always renders a browser WebM from Canvas first; when `/api/capabilities` reports `serverMp4: true`, the same one-click render transcodes that output to H.264/AAC MP4. Without FFmpeg, the honest fallback is a downloadable WebM.
 
 ## Security notes
@@ -62,4 +65,4 @@ For AI providers, copy `.env.example` to `.env` and set keys in the **server env
 
 ## Product behavior
 
-The workflow is connected end-to-end: write or paste a script → analyze into editable scenes → add assets → select a style/ratio → preview storyboard → render a Canvas video with captions, transitions, zooms and image focus → preview/download the WebM → save the project. TTS, LLM and future video providers are modular and fail clearly when not configured.
+The workflow is connected end-to-end: add product/person references → generate a Reel script or paste one → use the Hook Generator → analyze product images and plan Hook/Problem/Product/Demo/Benefits/Result/CTA scenes → edit the storyboard → generate or regenerate individual AI scenes → generate voice → render a Canvas/video-backed Reel with captions, transitions, zooms and audio ducking → preview/download WebM or MP4 → save the project. TTS, LLM, image and video providers are modular and fail clearly when not configured.

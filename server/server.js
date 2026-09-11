@@ -3,13 +3,14 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { analyzeWithProviders, generateCreatorWithProvider, generateScriptWithProviders, publicProviderStatus, synthesizeWithProvider } from './providers/index.js';
+import { analyzeWithProviders, generateCreatorWithProvider, generateHooksWithProviders, generateSceneWithProvider, generateScriptWithProviders, understandAssetsWithProviders, pollSceneWithProvider, publicProviderStatus, synthesizeWithProvider } from './providers/index.js';
 import { createRenderJobRecord, getRenderingCapabilities, transcodeWebmToMp4 } from './rendering/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadDotEnv(path.join(ROOT, '.env'));
 const PORT = Number(process.env.PORT || 8787);
 const jobs = new Map();
+const videoJobs = new Map();
 const projects = new Map();
 
 function loadDotEnv(file) { try { const content = fsSync.readFileSync(file, 'utf8'); for (const line of content.split(/\r?\n/)) { const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, ''); } } catch { /* .env is optional */ } }
@@ -26,14 +27,18 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') { response.writeHead(204, headers()); return response.end(); }
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
   try {
-    if (url.pathname === '/api/health' && request.method === 'GET') return sendJson(response, 200, { ok: true, version: '1.0.0', mode: 'local', time: new Date().toISOString() });
+    if (url.pathname === '/api/health' && request.method === 'GET') return sendJson(response, 200, { ok: true, version: '1.1.0', mode: 'local', time: new Date().toISOString() });
     if (url.pathname === '/api/providers/status' && request.method === 'GET') return sendJson(response, 200, publicProviderStatus());
     if (url.pathname === '/api/capabilities' && request.method === 'GET') return sendJson(response, 200, await getRenderingCapabilities());
     if (url.pathname === '/api/render/mp4' && request.method === 'POST') { const mp4 = await transcodeWebmToMp4(await bodyBuffer(request)); response.writeHead(200, headers({ 'Content-Type': 'video/mp4', 'Content-Length': mp4.length, 'Content-Disposition': 'attachment; filename="ugc-video.mp4"' })); return response.end(mp4); }
-    if (url.pathname === '/api/analyze-script' && request.method === 'POST') { const payload = await bodyJson(request); if (!payload.script?.trim()) return sendJson(response, 400, { error: 'script is required' }); return sendJson(response, 200, await analyzeWithProviders(payload)); }
+    if (url.pathname === '/api/understand-assets' && request.method === 'POST') { const payload = await bodyJson(request, 18_000_000); return sendJson(response, 200, await understandAssetsWithProviders(payload)); }
+    if (url.pathname === '/api/generate-hooks' && request.method === 'POST') { const payload = await bodyJson(request); return sendJson(response, 200, await generateHooksWithProviders(payload)); }
+    if (url.pathname === '/api/analyze-script' && request.method === 'POST') { const payload = await bodyJson(request, 18_000_000); if (!payload.script?.trim()) return sendJson(response, 400, { error: 'script is required' }); return sendJson(response, 200, await analyzeWithProviders(payload)); }
     if (url.pathname === '/api/generate-script' && request.method === 'POST') { const payload = await bodyJson(request); return sendJson(response, 200, await generateScriptWithProviders(payload)); }
     if (url.pathname === '/api/generate-creator' && request.method === 'POST') { const payload = await bodyJson(request); return sendJson(response, 200, await generateCreatorWithProvider(payload)); }
-    if (url.pathname === '/api/generate-voice' && request.method === 'POST') { const payload = await bodyJson(request); if (!payload.text?.trim()) return sendJson(response, 400, { error: 'text is required' }); return sendJson(response, 200, await synthesizeWithProvider(payload)); }
+    if (url.pathname === '/api/generate-voice' && request.method === 'POST') { const payload = await bodyJson(request, 4_000_000); if (!payload.text?.trim()) return sendJson(response, 400, { error: 'text is required' }); return sendJson(response, 200, await synthesizeWithProvider(payload)); }
+    if (url.pathname === '/api/generate-scene' && request.method === 'POST') { const payload = await bodyJson(request, 18_000_000); const submitted = await generateSceneWithProvider(payload); const id = `video-${Date.now()}-${Math.random().toString(16).slice(2)}`; videoJobs.set(id, { id, providerJobId: submitted.providerJobId, status: submitted.status || 'starting', output: submitted.output || null, provider: submitted.provider, sceneId: payload.sceneId, createdAt: new Date().toISOString() }); return sendJson(response, 202, videoJobs.get(id)); }
+    if (url.pathname.startsWith('/api/video/jobs/') && request.method === 'GET') { const id = url.pathname.split('/').pop(); const job = videoJobs.get(id); if (!job) return sendJson(response, 404, { error: 'Video generation job not found' }); if (!['succeeded', 'failed', 'canceled'].includes(job.status)) { const latest = await pollSceneWithProvider(job.providerJobId); Object.assign(job, { status: latest.status, output: latest.output || null, error: latest.error || null }); } return sendJson(response, 200, job); }
     if (url.pathname === '/api/render/jobs' && request.method === 'POST') { const job = createRenderJobRecord({ projectId: payloadProjectId(await bodyJson(request)) }); jobs.set(job.id, job); return sendJson(response, 202, job); }
     if (url.pathname.startsWith('/api/render/jobs/') && request.method === 'GET') { const job = jobs.get(url.pathname.split('/').pop()); return job ? sendJson(response, 200, job) : sendJson(response, 404, { error: 'Render job not found' }); }
     if (url.pathname === '/api/projects' && request.method === 'POST') { const project = await bodyJson(request); const id = project.id || `project-${Date.now()}`; const saved = { ...project, id, updatedAt: new Date().toISOString() }; projects.set(id, saved); return sendJson(response, 200, saved); }

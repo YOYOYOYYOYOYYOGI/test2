@@ -116,6 +116,9 @@ button { cursor: pointer; }
 .script-tools { display: flex; gap: 9px; }
 .script-tools button { border: 0; background: transparent; color: #6c7786; font-size: 11px; padding: 2px; }
 .script-tools button:hover { color: var(--text); }
+.hook-list { display:flex; flex-direction:column; gap:8px; max-height:55vh; overflow:auto; }
+.hook-card { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid #2d3742; border-radius:8px; background:#11161b; }
+.hook-card > div { min-width:0; }.hook-card strong, .hook-card small { display:block; }.hook-card strong { font-size:12px; line-height:1.35; }.hook-card small { color:var(--dim); font-size:10px; margin-top:5px; }.hook-number { color:var(--lime); font:10px 'DM Mono',monospace; display:block; margin-bottom:5px; }
 textarea.script-input { width: 100%; min-height: 176px; resize: vertical; padding: 16px; border: 0; background: transparent; color: #dfe4e9; outline: 0; line-height: 1.7; font-size: 13px; }
 textarea.script-input::placeholder { color: #55606c; }
 .script-footer { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line-soft); color: var(--dim); font-size: 10px; }
@@ -143,6 +146,7 @@ textarea.script-input::placeholder { color: #55606c; }
 .scene-topline { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .scene-type { color: var(--lime); font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }
 .scene-duration { color: var(--dim); font-family: 'DM Mono', monospace; font-size: 9px; }
+.scene-ready { color: var(--teal); font-size: 9px; font-weight: 700; margin-left: auto; }
 .scene-copy p { color: #bbc1c8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 12px; }
 .scene-edit-input { background: #11161b; color: var(--text); border: 1px solid var(--lime); border-radius: 5px; padding: 5px 7px; width: 100%; font-size: 12px; }
 .scene-actions { display: flex; gap: 3px; align-items: center; }

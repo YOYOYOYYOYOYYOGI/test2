@@ -18,11 +18,14 @@ function drawWrapped(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
   shown.forEach((item, index) => ctx.fillText(item, x, y + index * lineHeight)); return shown.length;
 }
 function drawImageCover(ctx, image, box, zoom = 1) {
-  const { x, y, w, h } = box; const ratio = Math.max(w / image.width, h / image.height) * zoom; const dw = image.width * ratio; const dh = image.height * ratio;
+  const { x, y, w, h } = box; const sourceWidth = image.videoWidth || image.naturalWidth || image.width; const sourceHeight = image.videoHeight || image.naturalHeight || image.height; const ratio = Math.max(w / sourceWidth, h / sourceHeight) * zoom; const dw = sourceWidth * ratio; const dh = sourceHeight * ratio;
   ctx.drawImage(image, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 function loadImage(dataUrl) {
   return new Promise((resolve) => { if (!dataUrl) return resolve(null); const image = new Image(); image.onload = () => resolve(image); image.onerror = () => resolve(null); image.src = dataUrl; });
+}
+function loadVideo(url) {
+  return new Promise(resolve => { if (!url) return resolve(null); const video = document.createElement('video'); video.crossOrigin = 'anonymous'; video.muted = true; video.playsInline = true; video.preload = 'auto'; video.onloadeddata = () => resolve(video); video.onerror = () => resolve(null); video.src = url; video.load(); });
 }
 function textForScene(scene) { return scene.caption || scene.script || scene.text || ''; }
 
@@ -33,6 +36,7 @@ export async function renderProjectToWebm(project, assets = [], onProgress = () 
   const imageMap = new Map();
   for (const scene of project.scenes || []) { const asset = assetMap.get(scene.imageAssetId); if (asset?.dataUrl && !imageMap.has(asset.id)) imageMap.set(asset.id, await loadImage(asset.dataUrl)); }
   const creatorAsset = assetMap.get(project.creatorAssetId); if (creatorAsset?.dataUrl && !imageMap.has(creatorAsset.id)) imageMap.set(creatorAsset.id, await loadImage(creatorAsset.dataUrl));
+  const videoMap = new Map(); for (const scene of project.scenes || []) { if (scene.mediaUrl) { const video = await loadVideo(scene.mediaUrl); if (video) videoMap.set(scene.id, video); } }
   const scenes = project.scenes?.length ? project.scenes : [{ type: 'Hook', script: project.script || 'Your story starts here.', duration: 4 }];
   const durations = scenes.map(s => Math.max(1.6, Number(s.duration) || 3)); const total = durations.reduce((sum, value) => sum + value, 0);
   const recorderStream = canvas.captureStream(30);
@@ -55,10 +59,11 @@ export async function renderProjectToWebm(project, assets = [], onProgress = () 
     const sceneElapsed = elapsed - cursor; const progress = Math.min(1, elapsed / total); const scene = scenes[index]; const sceneProgress = Math.min(1, sceneElapsed / durations[index]); const fade = Math.min(1, sceneProgress / .32, (1 - sceneProgress) / .32); const palette = PALETTES[index % PALETTES.length];
     const gradient = ctx.createLinearGradient(0, 0, width, height); gradient.addColorStop(0, palette[0]); gradient.addColorStop(1, palette[1]); ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
     const glow = ctx.createRadialGradient(width * .7, height * .23, 0, width * .7, height * .23, width * .8); glow.addColorStop(0, `${palette[2]}35`); glow.addColorStop(1, `${palette[2]}00`); ctx.fillStyle = glow; ctx.fillRect(0, 0, width, height);
+    const generatedVideo = videoMap.get(scene.id); if (generatedVideo) { const targetTime = Math.min(Math.max(0, sceneElapsed), Math.max(0, (generatedVideo.duration || durations[index]) - .05)); if (Math.abs((generatedVideo.currentTime || 0) - targetTime) > .12) generatedVideo.currentTime = targetTime; generatedVideo.play().catch(() => {}); ctx.save(); ctx.globalAlpha = Math.max(.4, fade); drawImageCover(ctx, generatedVideo, { x: 0, y: 0, w: width, h: height }, 1 + sceneProgress * .018); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.18)'; ctx.fillRect(0, 0, width, height); }
     const selected = imageMap.get(scene.imageAssetId); const creator = imageMap.get(project.creatorAssetId); const sceneType = String(scene.type || '').toLowerCase(); const creatorScene = creator && !/(product|demo|unbox|showcase)/.test(sceneType);
-    if (creatorScene) { ctx.save(); ctx.globalAlpha = .9 * Math.max(.4, fade); const scale = 1 + sceneProgress * .035; drawImageCover(ctx, creator, { x: 0, y: 0, w: width, h: height }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.27)'; ctx.fillRect(0, 0, width, height); }
-    else if (selected) { ctx.save(); ctx.globalAlpha = .83 * Math.max(.4, fade); const scale = 1 + sceneProgress * .045; drawImageCover(ctx, selected, { x: width * .07, y: height * .12, w: width * .86, h: height * .66 }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.32)'; ctx.fillRect(0, 0, width, height); }
-    else { drawProductPlaceholder(ctx, width, height, palette, sceneProgress); }
+    if (!generatedVideo && creatorScene) { ctx.save(); ctx.globalAlpha = .9 * Math.max(.4, fade); const scale = 1 + sceneProgress * .035; drawImageCover(ctx, creator, { x: 0, y: 0, w: width, h: height }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.27)'; ctx.fillRect(0, 0, width, height); }
+    else if (!generatedVideo && selected) { ctx.save(); ctx.globalAlpha = .83 * Math.max(.4, fade); const scale = 1 + sceneProgress * .045; drawImageCover(ctx, selected, { x: width * .07, y: height * .12, w: width * .86, h: height * .66 }, scale); ctx.restore(); ctx.fillStyle = 'rgba(8,10,12,.32)'; ctx.fillRect(0, 0, width, height); }
+    else if (!generatedVideo) { drawProductPlaceholder(ctx, width, height, palette, sceneProgress); }
     ctx.fillStyle = 'rgba(8,10,12,.20)'; ctx.fillRect(0, 0, width, height);
     const pad = width * .075; ctx.fillStyle = '#d9f565'; ctx.font = `700 ${Math.max(10, width * .022)}px DM Mono, monospace`; ctx.letterSpacing = '2px'; ctx.fillText((project.brandName || 'UGC STUDIO').toUpperCase(), pad, pad * 1.45); ctx.letterSpacing = '0px';
     const content = textForScene(scene); const captionStyle = project.captionStyle || 'Bold highlight'; const fontSize = Math.max(22, width * (project.ratio === '16:9' ? .043 : .064)) * (captionStyle === 'Minimal' ? .78 : 1); const captionY = captionStyle === 'Minimal' ? height * .81 : height * .76; ctx.font = `800 ${fontSize}px Manrope, sans-serif`; ctx.textAlign = 'center'; const maxTextWidth = width * .82; if (captionStyle === 'Karaoke highlight') { ctx.fillStyle = 'rgba(8,10,12,.52)'; roundedRect(ctx, width * .08, captionY - fontSize * .9, width * .84, fontSize * 2.45, 12); ctx.fill(); } ctx.fillStyle = captionStyle === 'Karaoke highlight' ? '#d9f565' : '#f8faf6'; const lines = drawWrapped(ctx, content, width / 2, captionY, maxTextWidth, fontSize * 1.12, 3);
@@ -66,7 +71,7 @@ export async function renderProjectToWebm(project, assets = [], onProgress = () 
     ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.46)'; ctx.font = `500 ${Math.max(9, width * .019)}px DM Mono, monospace`; ctx.fillText(`${String(index + 1).padStart(2, '0')} / ${String(scenes.length).padStart(2, '0')}`, pad, height - pad * .7);
     ctx.fillStyle = 'rgba(255,255,255,.22)'; roundedRect(ctx, pad, height - pad * .42, width - pad * 2, 3, 2); ctx.fill(); ctx.fillStyle = '#d9f565'; roundedRect(ctx, pad, height - pad * .42, (width - pad * 2) * progress, 3, 2); ctx.fill();
     if (voiceAnalyser && musicGainNode && audioContext) { const levels = new Uint8Array(voiceAnalyser.frequencyBinCount); voiceAnalyser.getByteFrequencyData(levels); const average = levels.reduce((sum, value) => sum + value, 0) / levels.length / 255; musicGainNode.gain.setTargetAtTime((options.musicVolume ?? .16) * (1 - Math.min(.72, average)), audioContext.currentTime, .04); }
-    onProgress(Math.round(progress * 100), index, scenes.length); if (elapsed < total) raf = requestAnimationFrame(draw); else { cancelAnimationFrame(raf); recorder.stop(); audioElements.forEach(element => element.pause()); audioContext?.close(); }
+    onProgress(Math.round(progress * 100), index, scenes.length); if (elapsed < total) raf = requestAnimationFrame(draw); else { cancelAnimationFrame(raf); recorder.stop(); audioElements.forEach(element => element.pause()); videoMap.forEach(video => video.pause()); audioContext?.close(); }
     lastTime = now;
   };
   raf = requestAnimationFrame(draw); void lastTime;

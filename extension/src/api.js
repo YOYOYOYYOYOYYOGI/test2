@@ -28,8 +28,12 @@ export async function transcodeWebm(blob) {
   return response.blob();
 }
 export async function analyzeScript(payload) { return request('/analyze-script', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function understandAssets(payload) { return request('/understand-assets', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function generateHooks(payload) { return request('/generate-hooks', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function generateScript(payload) { return request('/generate-script', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function generateCreator(payload) { return request('/generate-creator', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function generateScene(payload) { return request('/generate-scene', { method: 'POST', body: JSON.stringify(payload) }); }
+export async function getVideoJob(id) { return request(`/video/jobs/${encodeURIComponent(id)}`); }
 export async function generateVoice(payload) { return request('/generate-voice', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function createRenderJob(payload) { return request('/render/jobs', { method: 'POST', body: JSON.stringify(payload) }); }
 export async function getRenderJob(id) { return request(`/render/jobs/${encodeURIComponent(id)}`); }

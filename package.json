@@ -1,13 +1,13 @@
 {
   "name": "ugc-video-creator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "UGC Video Creator — a production-minded Chrome extension and secure AI API layer.",
   "scripts": {
     "dev": "node server/server.js",
     "start": "node server/server.js",
-    "check": "node --check server/server.js && node --check server/providers/index.js && node --check extension/src/app.js && node --check extension/src/renderer.js"
+    "check": "node --check server/server.js && node --check server/providers/index.js && node --check server/providers/openai-compatible.js && node --check server/providers/replicate-video.js && node --check extension/src/app.js && node --check extension/src/renderer.js"
   },
   "engines": {
     "node": ">=18"
