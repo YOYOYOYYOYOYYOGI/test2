@@ -133,6 +133,7 @@ export function dropzone({ accept = 'image/png,image/jpeg,image/webp', multiple 
   const accepted = (f) => {
     if (accept.includes('image') && f.type.startsWith('image/')) return true;
     if (accept.includes('audio') && f.type.startsWith('audio/')) return true;
+    if (accept.includes('video') && f.type.startsWith('video/')) return true;
     if (accept.includes('json') && (f.type === 'application/json' || f.name.endsWith('.json'))) return true;
     if (accept.includes('.txt') && (f.type === 'text/plain' || f.name.endsWith('.txt'))) return true;
     return false;

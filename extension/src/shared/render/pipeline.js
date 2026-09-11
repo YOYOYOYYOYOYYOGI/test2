@@ -28,9 +28,45 @@ import { generateMusic } from '../providers/music.js';
 import { generateLocalMusic, MUSIC_STYLES } from '../render/music-synth.js';
 import { generateStoryboard } from '../ai/storyboard.js';
 import { analyzeProductImages, isBeautyProduct } from '../ai/product.js';
+import { extractVideoFrames, analyzeAudioDensity, analyzeReferenceStyle, formatReferenceContext, referenceImageFragment } from '../ai/reference.js';
+import {
+  compileInstructions, applyPacingToScenes, formatInstructionsContext,
+  imageDirectivesFragment, voiceDirective,
+} from '../ai/instructions.js';
 import {
   buildCreatorPrompt, buildSceneImagePrompt, styleById,
 } from '../ai/prompts.js';
+
+/* ----------------------------- reference reel ------------------------------ */
+
+/**
+ * Analyze the uploaded reference reel (style only, anti-copy enforced).
+ * Frames are extracted locally; only frames go to the user's vision provider.
+ */
+export async function runReferenceAnalysis(project, { signal, force } = {}) {
+  const settings = await loadSettings();
+  if (!isConfigured('llm', settings)) throw setupError('llm');
+  const ref = project.input.referenceReel;
+  if (!ref?.assetId) throw new Error('No reference reel uploaded.');
+  if (ref.analysis && !force) return project;
+
+  const { getAsset } = await import('../core/idb.js');
+  const rec = await getAsset(ref.assetId);
+  if (!rec) throw new Error('Reference reel file is missing — re-upload it.');
+
+  const { frames, durationSec, width, height } = await extractVideoFrames(rec.blob, { count: 10 });
+  const audio = await analyzeAudioDensity(rec.blob);
+  ref.meta = { durationSec, width, height, speechRatio: audio.speechRatio };
+  ref.frames = frames.length;
+
+  ref.analysis = await analyzeReferenceStyle(frames, { durationSec, width, height, speechRatio: audio.speechRatio }, {
+    productName: project.input.productName,
+    script: project.input.script,
+  }, { signal });
+
+  await putProject(project);
+  return project;
+}
 
 /* --------------------------------- analysis -------------------------------- */
 
@@ -124,12 +160,20 @@ export async function generateSceneVoice(project, scene, { signal, voiceId, spee
   if (!scene.dialog?.trim()) throw new Error('This scene has no dialogue to speak.');
 
   const cfg = settings.tts;
-  const style = project.input.voice?.style || 'casual-friendly';
+  const compiled = compileInstructions(project.input.additionalInstructions);
+  const style = voiceDirective(compiled, project.input.voice?.style || 'casual-friendly');
+  const baseInstructions = VOICE_INSTRUCTIONS[style] || VOICE_INSTRUCTIONS['casual-friendly'];
+  const instructionAddons = [];
+  if (compiled.raw) instructionAddons.push(`Delivery note from the director: ${compiled.raw}`);
+  const finalInstructions = cfg.provider === 'openai'
+    ? [baseInstructions, ...instructionAddons].join(' ')
+    : undefined;
+
   const { blob, mime } = await synthesizeSpeech(scene.dialog, {
     voiceId: voiceId || project.input.voice?.voiceId || cfg.voiceId || undefined,
     speed: speed ?? project.input.voice?.speed ?? 1.0,
     signal,
-    voiceInstructions: cfg.provider === 'openai' ? VOICE_INSTRUCTIONS[style] || VOICE_INSTRUCTIONS['casual-friendly'] : undefined,
+    voiceInstructions: finalInstructions,
   });
 
   const asset = await saveBlob(blob, { type: mime, name: `voice-${scene.id}` });

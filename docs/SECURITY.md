@@ -6,7 +6,7 @@
 
 | Mode | Where the provider key is stored | Who sees it |
 |---|---|---|
-| **Backend mode (default recommendation)** | Backend server **environment variables** (`backend/.env`, git-ignored) | Only the backend. The extension sends requests to `/api/proxy/<provider>/…` and the backend injects `Authorization` server-side. |
+| **Backend mode (default recommendation)** | Backend server **environment variables** (`backend/.env`, git-ignored; template: `backend/env.example.txt) | Only the backend. The extension sends requests to `/api/proxy/<provider>/…` and the backend injects `Authorization` server-side. |
 | **Direct mode (explicit user choice)** | `chrome.storage.local` of the user's own browser profile. Never synced (`storage.local`, not `storage.sync`), never embedded in code, manifest or content scripts, sent only to the provider endpoint the user configured. | The user's own machine — acceptable for a personal BYO-key tool, and the Settings UI says so. |
 
 The extension ships with **no keys anywhere**: not in `manifest.json`, not in any JS file, not in the ZIP. Verify with `grep -r "sk-" extension/src` → 0 hits.

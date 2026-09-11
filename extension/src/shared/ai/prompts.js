@@ -127,6 +127,8 @@ Rules you always follow:
 6. On-screen text is short, punchy, ALL-CAPS-friendly, and never duplicates the first 5 words of the dialog.
 7. Vary camera angles between scenes (selfie close-up, mirror shot, top-down product shot, over-shoulder, macro texture shot, full-body lifestyle).
 8. End with a clear CTA scene.
+9. Priority order when inputs conflict: the USER'S script > the USER'S product facts > the USER'S creator image identity > the reference reel's STYLE (technique only, never content) > your own creative taste. Additional instructions from the user override style defaults.
+10. COPYRIGHT SAFETY: never reproduce footage, audio, branding, logos, watermarks, caption wording or a real person's identity from any reference material. The output is a new original ad built from the user's own assets.
 Output ONLY valid JSON matching the requested schema. No markdown, no commentary.`;
 
 /**
@@ -169,6 +171,8 @@ Target total duration: ${ctx.durationSec} seconds across roughly ${ctx.sceneCoun
 
   if (ctx.kbEntries?.length) parts.push(formatKBContext(ctx.kbEntries));
   parts.push(formatBrandContext(ctx.brand));
+  if (ctx.referenceContext) parts.push(ctx.referenceContext);
+  if (ctx.instructionsContext) parts.push(ctx.instructionsContext);
 
   return parts.join('\n');
 }
@@ -236,7 +240,7 @@ Output ONLY JSON:
 /** Build the photorealistic creator description used for image prompts. */
 export function buildCreatorPrompt(person, productCtx) {
   if (person?.description) {
-    return `The SAME real person in every shot: ${person.description}. Photorealistic, natural skin texture with visible pores, authentic amateur phone-photo look.`;
+    return `The EXACT SAME real person in every shot — preserve her facial identity precisely (face shape, eyes, nose, lips, eyebrows, skin tone), her hairstyle and hair color, and her clothing style where the scene allows. ${person.description}. Photorealistic, natural skin texture with visible pores, authentic amateur phone-photo look. NOT cartoon, NOT anime, NOT 3D render, NOT CGI.`;
   }
   return `A photorealistic UGC creator chosen to fit this product: ${productCtx}.
 Realistic human with natural skin texture, imperfect and authentic, shot on a phone camera.
@@ -245,7 +249,7 @@ Appropriate age/gender/style for the target audience, trendy casual clothing, re
 }
 
 /** Map a scene + style into a full image-generation prompt. */
-export function buildSceneImagePrompt({ scene, creatorPrompt, productAnalysis, style, aspect }) {
+export function buildSceneImagePrompt({ scene, creatorPrompt, productAnalysis, style, aspect, referenceFragment, imageDirectives }) {
   const bits = [
     `UGC advertisement photo, ${aspect} vertical composition`,
     scene.description,
@@ -258,7 +262,9 @@ export function buildSceneImagePrompt({ scene, creatorPrompt, productAnalysis, s
     scene.gesture ? `Action: ${scene.gesture}.` : '',
     scene.productInteraction || scene.productPlacement ? `Product: ${[scene.productPlacement, scene.productInteraction].filter(Boolean).join(' — ')}; keep packaging, logo and label EXACTLY consistent.` : '',
     style?.prompt || '',
-    `Natural motion blur where appropriate, authentic amateur framing, no text overlays, no watermark.`,
+    referenceFragment || '',
+    imageDirectives || '',
+    `Natural motion blur where appropriate, authentic amateur framing, no text overlays, no watermark, no logos other than the user's own product.`,
   ];
   return bits.filter(Boolean).join(' ');
 }

@@ -43,6 +43,8 @@ export async function renderNewProject(view) {
     brandId: '',
     productImages: [], // File objects
     personImage: null, // File | null
+    referenceReel: null, // File | null (style reference only — never copied)
+    additionalInstructions: '',
     autoCreator: true,
     beautyMode: true,
     aspect: settings?.defaults?.aspect || '9:16',
@@ -202,6 +204,10 @@ export async function renderNewProject(view) {
       autoCheck,
       el('p', { class: 'hint', style: { marginBottom: '4px' } }, 'ℹ️ Product photo understanding (packaging, colors, label) uses your vision-capable LLM. If your LLM has no vision, describe the product in step 1 instead.'),
       beautyCheck,
+      el('hr', { class: 'divider' }),
+      el('h3', {}, '🎞 Reference Reel (optional)'),
+      el('p', { class: 'sub' }, 'Point the AI at a reel whose style you love. It analyzes hook technique, scene structure, camera work, pacing, transitions, speaking style, gestures, caption look, lighting and overall visual DNA — then recreates that STYLE with your product, script and creator.'),
+      refWrap,
     ));
   }
 
@@ -291,7 +297,12 @@ export async function renderNewProject(view) {
       el('hr', { class: 'divider' }),
       el('h3', {}, 'Visual style'),
       styleGrid,
-      field('Custom style instructions (optional)', custom),
+      el('label', { class: 'field', style: { marginTop: '12px' } },
+        el('span', {}, 'Additional instructions — direct the AI (highest creative priority)'),
+        chips,
+        custom,
+        el('p', { class: 'hint' }, 'These commands are compiled into the storyboard, the scene images, the voice delivery and the pacing. Priority: your script + product + model image + reference style, with your instructions as the final creative override.'),
+      ),
       el('hr', { class: 'divider' }),
       el('h3', {}, 'Voice'),
       ttsOk
@@ -391,6 +402,8 @@ export async function renderNewProject(view) {
       el('dt', {}, 'Script'), el('dd', {}, wizard.script ? truncate(wizard.script, 140) : '— AI will write it —'),
       el('dt', {}, 'Product'), el('dd', {}, wizard.productName || '—'),
       el('dt', {}, 'Photos'), el('dd', {}, `${wizard.productImages.length} product · ${wizard.personImage ? 'creator photo' : wizard.autoCreator ? 'auto-generated creator' : 'no creator'}`),
+      el('dt', {}, 'Reference reel'), el('dd', {}, wizard.referenceReel ? `style analysis ✓ (${truncate(wizard.referenceReel.name || 'video', 40)})` : 'none'),
+      el('dt', {}, 'Instructions'), el('dd', {}, wizard.additionalInstructions ? `${truncate(wizard.additionalInstructions, 80)}` : 'none'),
       el('dt', {}, 'Format'), el('dd', {}, `${wizard.aspect} · ~${wizard.durationSec}s · ${STYLE_PRESETS.find((s) => s.id === wizard.stylePreset)?.name}`),
       el('dt', {}, 'Hook'), el('dd', {}, wizard.selectedHook ? `“${truncate(wizard.selectedHook.text, 60)}”` : 'AI decides'),
       el('dt', {}, 'Voice'), el('dd', {}, isConfigured('tts', settings) ? `${wizard.voice.style} · ${wizard.voice.speed}×` : 'not configured (captions only)'),

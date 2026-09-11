@@ -13,7 +13,7 @@ extension ──▶ POST http://localhost:8787/api/proxy/openai/chat/completions
 
 ```bash
 cd backend
-cp .env.example .env      # then edit .env — add the provider keys you use
+copy env.example.txt to .env   # then edit .env — add the provider keys you use
 npm install
 npm start                 # → http://localhost:8787  (npm run dev for auto-reload)
 ```

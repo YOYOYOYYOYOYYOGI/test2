@@ -19,7 +19,7 @@
  * SECURITY
  *   - Optional EXTENSION_TOKEN shared secret (header x-ugc-token)
  *   - Strict CORS: chrome-extension origins + localhost (+ EXTRA_ORIGIN)
- *   - Keys are read from environment variables only (see .env.example)
+ *   - Keys are read from environment variables only (see env.example.txt)
  *   - Requests are streamed end-to-end; nothing is logged or stored
  */
 
@@ -233,6 +233,6 @@ app.listen(PORT, () => {
   console.log(`   Token protection: ${EXTENSION_TOKEN ? 'ENABLED' : 'disabled (set EXTENSION_TOKEN for production)'}`);
   const envPath = path.join(__dirname, '..', '.env');
   if (!fs.existsSync(envPath)) {
-    console.log('   ⚠ No .env found — copy .env.example to .env and add your keys.\n');
+    console.log('   ⚠ No .env found — copy env.example.txt to .env and add your keys.\n');
   }
 });

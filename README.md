@@ -14,13 +14,15 @@ Chrome Extension (Manifest V3) · Provider-agnostic AI · Local rendering engine
 
 ReelForge is a complete AI UGC (user-generated content) video production studio that runs as a Chrome extension:
 
-1. **You provide:** a video script, product photos, an optional creator/person reference photo, product name & info, and an optional brand kit.
-2. **The AI understands the script** and directs a storyboard (hook → problem → demo → CTA…) with per-scene dialog, expressions, gestures, camera moves, lighting, product placement, on-screen text, captions, durations and transitions.
-3. **A dedicated AI Hook Generator** writes scroll-stopping openers across 12 proven categories; you pick one before generating.
-4. **Optional Beauty UGC mode** applies skincare/cosmetics scene templates.
-5. **The pipeline generates real assets** through your connected AI providers: scene images (with product/creator reference images so packaging and identity stay consistent), voice-over (TTS), optional AI video clips, optional lip-synced talking clips, and background music.
-6. **A local rendering engine** composites everything into a vertical 9:16 (also 1:1, 16:9) video — camera moves, transitions, animated word-level captions, music with automatic ducking under the voice, and a brand CTA end-card — and exports a **real MP4 file** (WebM fallback), rendered entirely in your browser.
-7. **Everything is editable**: storyboard editor, per-scene regeneration, timeline, captions, music, volumes — and re-rendering one edited project never re-generates the whole thing.
+1. **You provide:** a video script, product photos, a creator/model photo (or let the AI generate one), product name & info, an optional **reference Instagram Reel**, an optional brand kit, and free-text **Additional Instructions**.
+2. **Reference Reel (optional):** ReelForge extracts keyframes locally and a vision model builds a *style profile* — hook technique, scene structure, camera angles/movement, framing, pacing, transitions, speaking style, gestures, expressions, caption look, product presentation, lighting, background, overall visual DNA. **Style only — the output is a brand-new original ad**: no footage, audio, branding, watermarks, caption wording or the reference creator's identity is ever copied (enforced in every prompt and listed as "do not copy" in the UI).
+3. **The AI understands the script** and directs a storyboard (hook → problem → demo → CTA…) with per-scene dialog, expressions, gestures, camera moves, lighting, product placement, on-screen text, captions, durations and transitions — blending your script, product, creator, reference style and instructions in that priority order.
+4. **Additional Instructions** ("Make her more energetic", "Faster cuts", "Modern bathroom background", "Show the product closer"…) are compiled into real levers — pacing/duration scaling, transition tightening, voice energy, image directives, music mood — and the raw text also reaches the LLM as the highest creative priority.
+5. **A dedicated AI Hook Generator** writes scroll-stopping openers across 12 proven categories; you pick one before generating.
+6. **Optional Beauty UGC mode** applies skincare/cosmetics scene templates.
+7. **The pipeline generates real assets** through your connected AI providers: scene images (with product/creator reference images so packaging and identity stay consistent), voice-over (TTS), optional AI video clips, optional lip-synced talking clips, and background music.
+8. **A local rendering engine** composites everything into a vertical 9:16 (also 1:1, 16:9) video — camera moves, transitions, animated word-level captions, music with automatic ducking under the voice, and a brand CTA end-card — and exports a **real MP4 file** (WebM fallback), rendered entirely in your browser.
+9. **Everything is editable**: storyboard editor, per-scene regeneration, timeline, captions, music, volumes — plus a **Creative Direction** panel to swap the model image, change the reference reel or update instructions at any time — and re-rendering one edited project never re-generates the whole thing.
 
 ### Honesty first (no fake features)
 
@@ -73,7 +75,7 @@ ReelForge is **provider-agnostic** — a modular abstraction layer means you can
 
 ```bash
 cd backend
-cp .env.example .env        # add your provider API keys here
+copy env.example.txt to .env     # add your provider API keys here
 npm install
 npm start                   # → http://localhost:8787
 ```
@@ -98,14 +100,15 @@ Then in the extension: **Settings → Connection → Backend mode**, set `http:/
 ## How to create a video
 
 1. **New UGC Video** → paste your script (or let the AI write one from product info), product name/info, brand kit.
-2. **Media** → upload 1–6 product photos (JPG/PNG/WebP) + an optional creator photo (or let the AI generate a photorealistic creator).
-3. **Format & Style** → 9:16 / 1:1 / 16:9, duration, one of 11 style presets (Realistic UGC, Beauty UGC, Unboxing, Problem→Solution, Viral Reel, Cinematic Ad…), custom instructions, voice style, caption style, music.
+2. **Media** → upload 1–6 product photos (JPG/PNG/WebP) + an optional creator/model photo (or let the AI generate a photorealistic creator) + an optional **reference Instagram Reel** whose style will be matched.
+3. **Format & Style** → 9:16 / 1:1 / 16:9, duration, one of 11 style presets (Realistic UGC, Beauty UGC, Unboxing, Problem→Solution, Viral Reel, Cinematic Ad…), **Additional Instructions** (free-text commands with one-click example chips), voice style, caption style, music.
 4. **Hook** → the AI Hook Generator proposes hooks in 12 categories; pick one or skip.
 5. **Create** → vision AI analyzes your product photos, then the LLM directs the storyboard.
 6. **Storyboard editor** → review/edit every scene (dialog, expression, gesture, camera, background, lighting, product placement, text, caption, duration, transition); reorder, duplicate, delete; regenerate any scene's image/voice/video/lip-sync individually.
-7. **Generate missing assets** → runs voice → images → optional video clips → optional lip-sync → music. Failed steps are retried individually (continue from failed scene).
-8. **Render video** → the local engine records a real MP4 (progress shown). **Preview** plays it live before/after rendering.
-9. **Download video** → Instagram-ready file, or keep editing (captions, music, volumes, scene durations) and **Re-render** — a fast local operation.
+7. **Creative direction anytime** → in the project view, swap the model image, replace/re-analyze the reference reel, or edit Additional Instructions and rebuild the storyboard.
+8. **Generate missing assets** → runs voice → images → optional video clips → optional lip-sync → music. Failed steps are retried individually (continue from failed scene).
+9. **Render video** → the local engine records a real MP4 (progress shown). **Preview** plays it live before/after rendering.
+10. **Download video** → Instagram-ready file, or keep editing (captions, music, volumes, scene durations) and **Re-render** — a fast local operation.
 
 ---
 
@@ -151,7 +154,7 @@ Adding a provider = one entry in `shared/providers/config.js` + an adapter branc
 
 ## Environment variables (backend)
 
-See [`backend/.env.example`](backend/.env.example): `PORT`, `EXTENSION_TOKEN`, `EXTRA_ORIGIN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `STABILITY_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`, `ELEVENLABS_API_KEY`. **Never commit a real `.env`.**
+See [`backend/env.example.txt`](backend/env.example.txt): `PORT`, `EXTENSION_TOKEN`, `EXTRA_ORIGIN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `STABILITY_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`, `ELEVENLABS_API_KEY`. **Never commit a real `.env`.**
 
 ---
 

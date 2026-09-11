@@ -7,7 +7,7 @@
  * whole project.
  */
 
-import { el, icon, toast, confirmDlg, statusBadge, assetImg, progressBar, fmtBytes, modal } from '../ui.js';
+import { el, icon, toast, confirmDlg, statusBadge, assetImg, progressBar, fmtBytes, modal, dropzone } from '../ui.js';
 import { getProject, putProject, saveBlob, getAsset, getAssetURL, deleteAsset } from '../../../shared/core/idb.js';
 import { isConfigured } from '../../../shared/core/storage.js';
 import { CAPTION_STYLES } from '../../../shared/render/captions.js';
@@ -295,6 +295,170 @@ export async function renderProject(view, id, { setTopbar }) {
         el('button', { class: 'btn', onclick: () => renderBtn.click() }, icon('refresh'), 'Re-render'),
       ),
     );
+  }
+
+  /* --------------------------- creative direction --------------------------- */
+
+  function directionCard() {
+    const card = el('div', { class: 'card' });
+    const paint = () => {
+      card.innerHTML = '';
+      card.append(el('h3', {}, '🎯 Creative direction'),
+        el('p', { class: 'sub' }, 'Priority: your script + product + creator image + reference style — with your instructions as the final creative override.'));
+
+      /* --- Additional instructions --- */
+      const ta = el('textarea', {
+        class: 'input', rows: '5',
+        placeholder: 'e.g.\nMake her more energetic.\nModern bathroom background.\nFeel more premium.\nStronger hook.\nFaster cuts.\nShow the product closer.',
+      });
+      ta.value = project.input.additionalInstructions || '';
+      const taStatus = el('span', { class: 'hint' });
+      ta.addEventListener('input', () => { taStatus.textContent = 'Unsaved…'; });
+      ta.addEventListener('change', async () => {
+        project.input.additionalInstructions = ta.value;
+        await save();
+        taStatus.textContent = ' ✓ saved';
+      });
+
+      const applyBtn = el('button', { class: 'btn small primary' }, icon('wand'), 'Apply — rebuild storyboard');
+      applyBtn.addEventListener('click', async () => {
+        project.input.additionalInstructions = ta.value;
+        await save();
+        if (project.storyboard && !(await confirmDlg({
+          title: 'Rebuild the storyboard?',
+          body: 'The AI will re-direct the scenes using your instructions. Existing media stays until scenes are regenerated.',
+          okLabel: 'Rebuild',
+        }))) return;
+        sbBtn.click();
+      });
+
+      card.append(
+        el('label', { class: 'field' }, el('span', {}, 'Additional instructions'), ta,
+          el('div', { class: 'row', style: { marginTop: '8px', gap: '8px' } }, applyBtn, taStatus)),
+      );
+
+      /* --- Reference reel --- */
+      const ref = project.input.referenceReel;
+      card.append(el('hr', { class: 'divider' }), el('h3', { style: { fontSize: '14px' } }, '🎞 Reference reel style'));
+      if (ref?.analysis) {
+        const a = ref.analysis;
+        card.append(el('div', { style: { fontSize: '12.5px', color: 'var(--muted)', lineHeight: '1.65' } },
+          a.overallStyle ? el('div', {}, el('b', {}, 'Style: '), a.overallStyle) : null,
+          a.hookStyle ? el('div', {}, el('b', {}, 'Hook technique: '), a.hookStyle) : null,
+          a.pacing ? el('div', {}, el('b', {}, 'Pacing: '), `${a.pacing.rhythm || ''} (~${a.pacing.avgSceneSec ?? '?'}s/scene)`) : null,
+          (a.sceneStructure || []).length ? el('div', {}, el('b', {}, 'Structure: '), a.sceneStructure.map((b) => b.beat).join(' → ')) : null,
+          (a.doNotCopy || []).length ? el('div', { class: 'note warn', style: { marginTop: '6px', fontSize: '11.5px' } }, 'Excluded from generation (copyright): ', a.doNotCopy.join(' · ')) : null,
+        ));
+        card.append(el('div', { class: 'row', style: { marginTop: '8px', gap: '6px' } },
+          el('button', {
+            class: 'btn small',
+            onclick: async (e) => {
+              e.currentTarget.disabled = true;
+              genProgress.set(0.4, 'Re-analyzing reference reel style…');
+              try { await runReferenceAnalysis(project, { force: true }); toast('Reference style updated — rebuild the storyboard to apply.', 'success', 5000); paint(); }
+              catch (err) { toast(truncate(err.message, 220), 'error', 7000); }
+              genProgress.set(0, 'Idle');
+              e.currentTarget.disabled = false;
+            },
+          }, icon('refresh'), 'Re-analyze style'),
+          el('button', {
+            class: 'btn small danger',
+            onclick: async () => {
+              if (!(await confirmDlg({ title: 'Remove reference reel?', body: 'The style profile will no longer influence new storyboards.', okLabel: 'Remove', danger: true }))) return;
+              project.input.referenceReel = null;
+              await save(); paint();
+            },
+          }, 'Remove'),
+        ));
+      } else if (ref?.assetId) {
+        card.append(el('p', { class: 'hint' }, 'Reel uploaded but not analyzed yet.'),
+          el('button', {
+            class: 'btn small',
+            onclick: async (e) => {
+              e.currentTarget.disabled = true;
+              genProgress.set(0.4, 'Analyzing reference reel…');
+              try { await runReferenceAnalysis(project, { force: true }); toast('Style analyzed — rebuild the storyboard to apply it.', 'success', 5000); paint(); }
+              catch (err) { toast(truncate(err.message, 240), 'error', 8000); }
+              genProgress.set(0, 'Idle');
+              e.currentTarget.disabled = false;
+            },
+          }, icon('spark'), 'Analyze style now'));
+      } else {
+        card.append(dropzone({
+          accept: 'video/mp4,video/webm,video/quicktime,video/*',
+          label: 'Upload a reference Instagram Reel',
+          sub: 'Style only — your video stays 100% original',
+          onFiles: async ([f]) => {
+            if (f.size > 300 * 1024 * 1024) { toast('Reference video too large (max 300 MB).', 'error'); return; }
+            genProgress.set(0.3, 'Saving reference reel…');
+            try {
+              const asset = await saveBlob(f, { name: f.name, type: f.type });
+              project.input.referenceReel = { assetId: asset.id, analysis: null, meta: null, frames: 0 };
+              await save();
+              genProgress.set(0.5, 'Analyzing style…');
+              await runReferenceAnalysis(project, { force: true });
+              toast('Reference style analyzed — rebuild the storyboard to apply it.', 'success', 6000);
+              paint();
+            } catch (err) { toast(truncate(err.message, 240), 'error', 8000); }
+            genProgress.set(0, 'Idle');
+          },
+        }));
+      }
+
+      /* --- Creator / model image --- */
+      card.append(el('hr', { class: 'divider' }), el('h3', { style: { fontSize: '14px' } }, '👤 Creator / model image'));
+      const creatorRow = el('div', { class: 'row', style: { gap: '10px', alignItems: 'flex-start' } });
+      if (project.input.personImage) {
+        creatorRow.append(el('div', { class: 'thumb', style: { width: '64px', height: '84px' } }, assetImg(project.input.personImage, 'creator')));
+      }
+      const creatorControls = el('div', { style: { flex: '1', minWidth: '180px' } });
+      if (project.input.personImage) {
+        creatorControls.append(el('p', { class: 'hint', style: { marginTop: '0' } },
+          project.input.personAutoGenerated ? 'AI-generated creator — identity is kept consistent across scenes.' : 'Your uploaded model — facial identity, hair and style are preserved across scenes.'),
+        el('div', { class: 'row', style: { gap: '6px', flexWrap: 'wrap' } },
+          el('button', {
+            class: 'btn small',
+            onclick: async (e) => {
+              e.currentTarget.disabled = true;
+              genProgress.set(0.4, 'Re-describing the creator for the AI…');
+              try {
+                project.input.personInfo = null;
+                await runPersonAnalysis(project, { force: true });
+                toast('Creator description updated — regenerate scene images to apply.', 'success', 5000);
+              } catch (err) { toast(truncate(err.message, 200), 'error', 6000); }
+              genProgress.set(0, 'Idle');
+              e.currentTarget.disabled = false;
+            },
+          }, icon('refresh'), 'Re-describe'),
+          project.input.personAutoGenerated ? el('button', {
+            class: 'btn small',
+            onclick: () => creatorBtn?.click(),
+          }, icon('spark'), 'New AI creator') : null,
+        ));
+      }
+      creatorControls.append(dropzone({
+        label: project.input.personImage ? 'Replace with another model image' : 'Upload your model / creator photo',
+        sub: 'Her face, hair and style are preserved in every scene',
+        onFiles: async ([f]) => {
+          try {
+            const asset = await saveBlob(f, { name: f.name, type: f.type });
+            project.input.personImage = asset.id;
+            project.input.personAutoGenerated = false;
+            project.input.personInfo = null;
+            await save();
+            genProgress.set(0.4, "Learning the new creator's look…");
+            await runPersonAnalysis(project, { force: true });
+            toast('New model set — regenerate scene images to apply her look.', 'success', 6000);
+            paint();
+          } catch (err) { toast(truncate(err.message, 200), 'error', 6000); }
+          genProgress.set(0, 'Idle');
+        },
+      }));
+      creatorRow.append(creatorControls);
+      card.append(creatorRow);
+    };
+    paint();
+    return card;
   }
 
   /* ------------------------------ music card ------------------------------- */
