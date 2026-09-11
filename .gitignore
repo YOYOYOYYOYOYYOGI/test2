@@ -14,3 +14,6 @@ reelforge-backend/.env
 
 # Test TLS material (regenerate with tests/setup-tls.sh)
 tests/tls/
+
+# Release artifacts (published via GitHub)
+/*.zip
