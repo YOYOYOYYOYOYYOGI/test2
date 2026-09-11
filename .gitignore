@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+
+# Environment / secrets — NEVER commit real API keys
+backend/.env
+.env
+*.local.env
+
+# Build / OS noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Test scratch
+/test-artifacts/

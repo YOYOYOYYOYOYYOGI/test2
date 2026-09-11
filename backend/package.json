@@ -1,0 +1,19 @@
+{
+  "name": "reelforge-backend",
+  "version": "1.0.0",
+  "description": "Secure API-key proxy backend for the ReelForge AI UGC Video Generator Chrome extension. Keeps provider secret keys in environment variables, never in the extension.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "license": "MIT"
+}

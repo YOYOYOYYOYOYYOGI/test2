@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      width: 330px; margin: 0; padding: 16px;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0d0d14; color: #ececf4; font-size: 13.5px;
+    }
+    .head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .mark {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      display: grid; place-items: center; font-size: 15px;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+    }
+    .head b { font-size: 15px; display: block; }
+    .head small { color: #9c9cb3; font-size: 11px; }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 10px; margin-bottom: 8px;
+      border-radius: 10px; border: 1px solid #33334d;
+      background: #1a1a28; color: #ececf4; font-weight: 600; font-size: 13px;
+      cursor: pointer; font-family: inherit; transition: filter .15s;
+    }
+    .btn:hover { filter: brightness(1.2); }
+    .btn.primary { background: linear-gradient(135deg, #8b5cf6, #ec4899); border: none; }
+    .status {
+      border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5;
+      background: #14141f; border: 1px solid #26263a; color: #9c9cb3; margin-top: 10px;
+    }
+    .status.ok { border-color: rgba(52, 211, 153, .4); }
+    .status.warn { border-color: rgba(251, 191, 36, .45); }
+    .proj {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 9px; cursor: pointer;
+      border: 1px solid #26263a; margin-bottom: 6px; background: #14141f;
+      font-size: 12.5px;
+    }
+    .proj:hover { border-color: #8b5cf6; }
+    .proj small { color: #6a6a85; margin-left: auto; white-space: nowrap; }
+    h4 { margin: 14px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #6a6a85; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <div class="mark">▶</div>
+    <div><b>ReelForge</b><small>AI UGC Video Generator</small></div>
+  </div>
+  <button class="btn primary" id="open">🎬 Open AI UGC Studio</button>
+  <button class="btn" id="new">＋ New UGC Video</button>
+  <div id="projects"></div>
+  <div class="status" id="status">Checking AI setup…</div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

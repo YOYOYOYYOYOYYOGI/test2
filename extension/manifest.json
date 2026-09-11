@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "ReelForge — AI UGC Video Generator",
+  "version": "1.0.0",
+  "description": "Generate realistic AI UGC advertisement videos for Instagram Reels: script understanding, storyboard, realistic creators, voice, lip-sync, captions, music and MP4 export.",
+  "minimum_chrome_version": "126",
+  "action": {
+    "default_title": "ReelForge — AI UGC Studio",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "src/dashboard/index.html#/settings",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage", "unlimitedStorage", "downloads"],
+  "host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]
+}
