@@ -43,8 +43,9 @@ Estimated time for one order: ~30–60 seconds.
   in Chrome/Safari and choose **Install app / Add to Home Screen**. The PWA uses
   the same React pages, order model, validation, label/PDF, exports, backup, and
   Google Sheets sync engine—there is no second application database. Google
-  Sheets is the shared business record; local browser storage is a resilient cache
-  and queues an order if a connection is unavailable.
+  Sheets is the shared business record; when a PWA user chooses a worksheet it
+  hydrates the local order cache from existing rows without overwriting a pending
+  local order, and queues an order if a connection is unavailable.
 - The web build contains `app.webmanifest` and `service-worker.js`; these are
   deliberately separate from the extension's `manifest.json` (MV3).
 
