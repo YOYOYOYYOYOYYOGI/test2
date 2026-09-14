@@ -25,6 +25,7 @@ import type { Order, OrderField, Product, Settings } from '../types';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, makeId } from '../lib/constants';
 import { roundMoney, computeTotal } from '../lib/format';
 import { normalizeOrderNumber, normalizePhone, normalizePhoneText } from '../lib/normalizePhone';
+import { localOrderDate, parseOrderDate } from '../lib/orderDate';
 import { xlsxWorkbookBlob, type XlsxCell, type XlsxSheet } from '../lib/xlsx';
 import { parseXlsxSheets, type XlsxSheetRows } from '../lib/tableImport';
 import { excelGrid, localDateStamp } from './excelExport';
@@ -475,6 +476,8 @@ export interface FullImportPlan extends FullImportCounts {
 const ORDERS_ALIASES: Record<string, string[]> = {
   orderNumber: ['order number', 'order no', 'order'],
   previousOrderNumber: ['previous order number', 'previous order'],
+  previousSequenceOrderNumber: ['previous sequence order number', 'previous sequence order'],
+  orderDate: ['order date', 'orderdate'],
   customerName: ['customer name', 'name', 'client name'],
   customerWhatsapp: ['whatsapp number', 'whatsapp', 'wa number', 'whatsapp no', 'whatsapp no.'],
   customerMobile: ['mobile number', 'mobile', 'mobile no', 'mobile no.'],
@@ -492,7 +495,7 @@ const ORDERS_ALIASES: Record<string, string[]> = {
   totalAmount: ['total', 'total amount', 'grand total'],
   labelStatus: ['label status', 'print status'],
   printedAt: ['printed at'],
-  createdAt: ['created at', 'date', 'order date'],
+  createdAt: ['created at', 'date created', 'created date'],
   updatedAt: ['updated at'],
 };
 
@@ -549,7 +552,10 @@ function enumMatch<T extends string>(list: readonly T[], raw: string): T | null 
 
 export interface ParsedOrderRow {
   orderNumber: string;
+  /** Optional YYYY-MM-DD business date parsed from Order Date. */
+  orderDate: string | null;
   previousOrderNumber: string;
+  previousSequenceOrderNumber: string;
   customer: Order['customer'];
   paymentStatus: Order['paymentStatus'] | null;
   paymentMethod: Order['paymentMethod'] | null;
@@ -610,7 +616,9 @@ export function parseOrderRow(row: string[], bindings: ColumnBinding[], sourceRo
   const rawPrev = get('previousOrderNumber');
   return {
     orderNumber,
+    orderDate: parseOrderDate(get('orderDate')),
     previousOrderNumber: rawPrev ? normalizeOrderNumber(rawPrev) : '',
+    previousSequenceOrderNumber: normalizeOrderNumber(get('previousSequenceOrderNumber')),
     customer: {
       name: custOf('customerName'),
       whatsapp: custOf('customerWhatsapp'),
@@ -849,6 +857,7 @@ export function applyFullImport(plan: FullImportPlan, current: ImportCurrentStat
     const merged: Order = {
       id: existing?.id ?? makeId(),
       orderNumber: parsed.orderNumber,
+      orderDate: parsed.orderDate ?? existing?.orderDate ?? localOrderDate(new Date(parsed.createdAt ?? existing?.createdAt ?? now)),
       customer: {
         name: parsed.customer.name || existing?.customer.name || '',
         whatsapp: parsed.customer.whatsapp || existing?.customer.whatsapp || '',
@@ -868,6 +877,7 @@ export function applyFullImport(plan: FullImportPlan, current: ImportCurrentStat
       customFields: { ...(existing?.customFields ?? {}), ...parsed.custom },
       deliveryCharge,
       previousOrderNumber: parsed.previousOrderNumber || existing?.previousOrderNumber,
+      previousSequenceOrderNumber: parsed.previousSequenceOrderNumber || existing?.previousSequenceOrderNumber,
       totalAmount: parsed.deliveryCharge !== null
         ? roundMoney(subtotal + deliveryCharge)
         : parsed.totalFromFile ?? (existing && existing.totalAmount > 0 ? existing.totalAmount : subtotal + deliveryCharge),

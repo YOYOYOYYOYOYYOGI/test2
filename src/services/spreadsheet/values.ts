@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 import type { Order, OrderField, Product, Settings } from '../../types';
 import { orderTotal, productsSummary } from '../../lib/format';
+import { formatOrderDate, orderDateOf } from '../../lib/orderDate';
 
 /** Resolve the final spreadsheet column name for a bound field (respects custom mappings). */
 export function resolveFieldColumn(field: OrderField, settings: Settings): string {
@@ -35,7 +36,7 @@ export function desiredColumns(
     .filter((p) => includedProductIds.has(p.id))
     .map((p) => productColumnName(p));
 
-  const extras: string[] = ['Delivery Charge'];
+  const extras: string[] = fields.some((f) => f.key === 'orderDate') ? ['Delivery Charge'] : ['Order Date', 'Delivery Charge'];
   if (fields.some((f) => f.key === 'totalAmount' || f.name === 'Total')) {
     // Total is provided by that bound field's own column — don't duplicate.
   } else {
@@ -47,7 +48,7 @@ export function desiredColumns(
 
 /** Extra fixed system columns always created. */
 export function systemColumns(): string[] {
-  return ['Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
+  return ['Order Date', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At'];
 }
 
 interface Ctx {
@@ -70,6 +71,7 @@ export function boundFieldValue(order: Order, field: OrderField): string | numbe
   const c = order.customer;
   switch (key) {
     case 'orderNumber': return order.orderNumber;
+    case 'orderDate': return formatOrderDate(orderDateOf(order));
     case 'customerName': return c.name;
     case 'customerWhatsapp': return c.whatsapp;
     case 'customerMobile': return c.mobile;
@@ -137,6 +139,7 @@ export function buildRowForHeaders(
     const name = resolveFieldColumn(field, ctx.settings);
     const val = boundFieldValue(order, field);
     if (field.key === 'totalAmount' || field.type === 'currency') setMoneyByName(name, val);
+    else if (field.key === 'orderDate') setByName(name, `'${String(val)}`);
     else setByName(name, cellValue(val));
   }
 
@@ -149,7 +152,9 @@ export function buildRowForHeaders(
     setMoneyByName(name, line ? line.quantity : 0);
   }
 
-  // System columns
+  // System columns. The apostrophe makes the Sheets USER_ENTERED API keep the
+  // day as literal text (DD/MM/YYYY), never a locale/timezone-converted date.
+  setByName('Order Date', `'${formatOrderDate(orderDateOf(order))}`);
   setMoneyByName('Delivery Charge', order.deliveryCharge ?? 0);
   setMoneyByName('Total', orderTotal(order));
   setByName('Previous Order Number', order.previousOrderNumber ?? '');

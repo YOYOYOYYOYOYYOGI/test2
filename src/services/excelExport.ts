@@ -12,6 +12,7 @@
 import type { Order, OrderField, Product, Settings } from '../types';
 import { xlsxBlob } from '../lib/xlsx';
 import { orderDelivery, orderTotal } from '../lib/format';
+import { formatOrderDate, localOrderDate, orderDateOf } from '../lib/orderDate';
 import { boundFieldValue, productColumnName, resolveFieldColumn } from './spreadsheet/values';
 
 export type ExcelValue = string | number | boolean | null;
@@ -68,6 +69,8 @@ function excelValue(raw: string | number | boolean | undefined | null, field: Or
     const n = parseAmount(s);
     return n !== null ? n : s;
   }
+  // Order dates are already formatted date text; never coerce them through a timestamp.
+  if (key === 'orderDate') return s;
   // Phones / order numbers / pincodes: "1001" → 1001 (matches the reference
   // tables); anything with letters or +91 stays text.
   if (/^\+?\d{4,15}$/.test(s.replace(/\s/g, ''))) {
@@ -114,6 +117,7 @@ export function excelColumns(ctx: ExportCtx): ColumnDef[] {
     });
   }
   // System columns mirror the spreadsheet's fixed columns.
+  push('Order Date', (o) => formatOrderDate(orderDateOf(o)));
   push('Delivery Charge', (o) => orderDelivery(o));
   push('Total', (o) => orderTotal(o));
   push('Previous Order Number', (o) => o.previousOrderNumber ?? '');
@@ -131,7 +135,7 @@ export function excelGrid(orders: Order[], ctx: ExportCtx): (string | number | b
   const cols = excelColumns(ctx);
   const headers = cols.map((c) => c.header);
   const body = [...orders]
-    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.orderNumber.localeCompare(b.orderNumber))
+    .sort((a, b) => orderDateOf(a).localeCompare(orderDateOf(b)) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.orderNumber.localeCompare(b.orderNumber))
     .map((o) => cols.map((c) => c.value(o)));
   return [headers, ...body];
 }
@@ -152,13 +156,13 @@ export function todayRange(now: number = Date.now()): [number, number] {
   return [start, end];
 }
 
-/** Orders whose createdAt falls on the same local day as `now`. */
+/** Orders whose saved Order Date is the same local business day as `now`. */
 export function ordersCreatedToday(orders: Order[], now: number = Date.now()): Order[] {
-  const [start, end] = todayRange(now);
-  return orders.filter((o) => {
-    const ts = o.createdAt ?? 0;
-    return ts >= start && ts < end;
-  });
+  // Keep todayRange exported for existing integrations, but business filtering
+  // compares calendar strings so a device timezone can never move an order.
+  void todayRange(now);
+  const today = localOrderDate(new Date(now));
+  return orders.filter((o) => orderDateOf(o) === today);
 }
 
 export type ExcelExportKind = 'today' | 'all' | 'filtered';
@@ -190,7 +194,7 @@ export function downloadBlob(filename: string, blob: Blob): void {
  */
 /**
  * Build the workbook for a download.
- *  - 'today'    → orders created on the local day of `now`
+ *  - 'today'    → orders whose saved Order Date is the local day of `now`
  *  - 'filtered' → the caller's already-filtered list (exact same records the
  *                 page is currently showing — never re-filters, never widens)
  *  - 'all'      → every stored order

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Google OAuth 2.0 for the Sheets API — Chrome Extension flow (Manifest V3).
+// Google OAuth 2.0 for Chrome Extension (MV3) and installed web app (PWA).
 //
 // How this works (and what was wrong before):
 //  - The extension previously bundled a hard-coded OAuth client ID
@@ -41,8 +41,15 @@ export const SCOPES = [
  *  their real client id (see isClientIdConfigured). */
 const UNCONFIGURED_MARKER = 'PASTE_YOUR_GOOGLE_CLIENT_ID_HERE';
 
-/** The OAuth client id from the ONE central configuration location:
- *  public/manifest.json → "oauth2" → "client_id". */
+/** The Google web-client ID is deployment configuration, not a user setting.
+ * Vite substitutes VITE_GOOGLE_WEB_CLIENT_ID during the PWA build. Client IDs
+ * are public identifiers, but keeping it out of Settings avoids users having
+ * to paste or edit application configuration. */
+function webClientId(): string {
+  return String(import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID ?? '').trim();
+}
+
+/** The OAuth client id from the extension manifest (MV3 only). */
 export function oauthClientId(): string {
   try {
     const manifest = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
@@ -56,7 +63,7 @@ export function oauthClientId(): string {
 
 /** True when the manifest carries a real (non-placeholder) client id. */
 export function isClientConfigured(): boolean {
-  return isClientIdConfigured(oauthClientId());
+  return inExtension() ? isClientIdConfigured(oauthClientId()) : isClientIdConfigured(webClientId());
 }
 
 export function isClientIdConfigured(id: string): boolean {
@@ -99,7 +106,7 @@ export class GoogleAuthError extends Error {
 
 const FRIENDLY: Record<GoogleAuthErrorCode, string> = {
   not_configured:
-    'Google OAuth is not configured yet. Open Settings → Spreadsheet → "Google OAuth setup" and paste your OAuth Client ID into the manifest (single spot), then reload the extension.',
+    'Google sign-in is not available in this build yet. Please contact your app administrator.',
   user_cancelled: 'Google sign-in was cancelled. You can try again whenever you are ready.',
   auth_required: 'Google connection expired. Please reconnect your Google Account.',
   not_extension: 'Google sign-in requires the Chrome extension. Load the built extension in Chrome (see README).',
@@ -134,9 +141,62 @@ function mapIdentityError(message: string): GoogleAuthError {
  *  - interactive=true  → shows the Google consent window when needed.
  *  - interactive=false → silent; succeeds only while a valid grant exists
  *    (used for automatic renewal of expired tokens). */
-export function getGoogleAuthToken(interactive: boolean): Promise<string> {
+let webToken: string | null = null;
+let googleScript: Promise<void> | null = null;
+
+type GoogleTokenClient = { requestAccessToken: (opts?: { prompt?: string }) => void; callback: (response: { access_token?: string; error?: string; error_description?: string }) => void };
+type GoogleIdentity = { oauth2: { initTokenClient: (options: { client_id: string; scope: string; callback: GoogleTokenClient['callback'] }) => GoogleTokenClient } };
+
+function loadGoogleIdentity(): Promise<void> {
+  if (googleScript) return googleScript;
+  googleScript = new Promise((resolve, reject) => {
+    const present = (window as Window & { google?: { accounts?: GoogleIdentity } }).google?.accounts?.oauth2;
+    if (present) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new GoogleAuthError('unknown', FRIENDLY.unknown, 'Google Identity Services script did not load'));
+    document.head.appendChild(script);
+  });
+  return googleScript;
+}
+
+/** Standard Google Identity Services flow for a secure PWA deployment. */
+async function getWebGoogleAuthToken(interactive: boolean): Promise<string> {
+  if (!isClientIdConfigured(webClientId())) {
+    throw new GoogleAuthError('not_configured', FRIENDLY.not_configured);
+  }
+  if (!interactive && webToken) return webToken;
+  await loadGoogleIdentity();
+  const google = (window as Window & { google?: { accounts?: GoogleIdentity } }).google;
+  const oauth2 = google?.accounts?.oauth2;
+  if (!oauth2) throw new GoogleAuthError('unknown', FRIENDLY.unknown, 'Google Identity Services unavailable');
   return new Promise((resolve, reject) => {
-    if (!inExtension() || typeof chrome?.identity?.getAuthToken !== 'function') {
+    const client = oauth2.initTokenClient({
+      client_id: webClientId(),
+      scope: SCOPES.join(' '),
+      callback: (response) => {
+        if (response.access_token) {
+          webToken = response.access_token;
+          resolve(response.access_token);
+          return;
+        }
+        const technical = response.error_description || response.error || 'no access token returned';
+        reject(response.error === 'access_denied'
+          ? new GoogleAuthError('user_cancelled', FRIENDLY.user_cancelled, technical)
+          : new GoogleAuthError('auth_required', FRIENDLY.auth_required, technical));
+      },
+    });
+    client.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+  });
+}
+
+export function getGoogleAuthToken(interactive: boolean): Promise<string> {
+  if (!inExtension()) return getWebGoogleAuthToken(interactive);
+  return new Promise((resolve, reject) => {
+    if (typeof chrome?.identity?.getAuthToken !== 'function') {
       reject(new GoogleAuthError('not_extension', FRIENDLY.not_extension));
       return;
     }
@@ -163,6 +223,7 @@ export function getGoogleAuthToken(interactive: boolean): Promise<string> {
 /** Drop Chrome's cached tokens for this extension (called on disconnect).
  *  Only the Google connection is removed — never any extension data. */
 export async function clearCachedGoogleTokens(): Promise<void> {
+  if (!inExtension()) { webToken = null; return; }
   try {
     if (typeof chrome?.identity?.clearAllCachedAuthTokens === 'function') {
       await chrome.identity.clearAllCachedAuthTokens();

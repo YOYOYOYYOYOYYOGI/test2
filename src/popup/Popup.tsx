@@ -9,7 +9,8 @@ import { useAppStore } from '../store/appStore';
 import { Badge } from '../components/ui';
 import { IconArrowRight, IconList, IconPlus, IconPrinter, IconSearch, IconSettings } from '../components/icons';
 import { LogoMark } from '../app/Shell';
-import { formatDate, formatMoney } from '../lib/constants';
+import { formatMoney } from '../lib/constants';
+import { formatOrderDate, orderDateOf } from '../lib/orderDate';
 
 function openApp(route: string, query?: string) {
   const url = chrome.runtime.getURL(`index.html#/${route}${query ? `?${query}` : ''}`);
@@ -46,7 +47,7 @@ export function Popup() {
   }
 
   // ---- Ready: store is fully hydrated — safe to derive. ----
-  const recent = [...orders].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
+  const recent = [...orders].sort((a, b) => orderDateOf(b).localeCompare(orderDateOf(a)) || b.createdAt - a.createdAt).slice(0, 6);
   const conn = settings.demoMode ? { label: 'Demo', color: 'amber' as const } : settings.spreadsheet.connected
     ? { label: settings.spreadsheet.connection?.worksheetName || 'Sheets', color: 'green' as const }
     : { label: 'Local only', color: 'red' as const };
@@ -102,7 +103,7 @@ export function Popup() {
                 {o.printed === 'Printed' ? <span className="small" style={{ color: 'var(--success)' }}>✓ printed</span> : null}
               </div>
               <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {o.customer.name || '—'} · {o.customer.city || ''} · {formatDate(o.createdAt)}
+                {o.customer.name || '—'} · {o.customer.city || ''} · {formatOrderDate(orderDateOf(o))}
               </div>
             </div>
             <span style={{ fontWeight: 800, fontSize: 12.5, color: o.paymentStatus === 'Paid' ? 'var(--success)' : 'var(--text)' }}>

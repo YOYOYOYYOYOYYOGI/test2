@@ -4,6 +4,7 @@
 import type { Order, OrderField, Product, Settings } from '../types';
 import { makeId } from '../lib/constants';
 import { computeTotal } from '../lib/format';
+import { localOrderDate, parseOrderDate } from '../lib/orderDate';
 import { LS, storage } from './storage';
 import { engineForSettings } from './sync';
 import { SpreadsheetEngine, SpreadsheetError, friendlySheetsError } from './spreadsheet/engine';
@@ -11,6 +12,8 @@ import { GoogleAuthError } from './google/oauth';
 
 export interface OrderInput {
   orderNumber: string;
+  /** Business date selected by the user, stored as timezone-safe YYYY-MM-DD. */
+  orderDate?: string;
   customer: Order['customer'];
   products: Record<string, { productName?: string; quantity: number; price?: number; sku?: string; labelName?: string }>;
   paymentStatus: Order['paymentStatus'];
@@ -114,6 +117,12 @@ export function previousSequenceOrderFor(orderNumber: string, orders: Order[]): 
 
 function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; now?: number } = {}): Order {
   const now = opts.now ?? Date.now();
+  // Programmatic/legacy callers which omit the field retain the new-order
+  // default. A supplied blank or malformed selection is an error: never turn
+  // a user's selected day into today's date without telling them.
+  const fallbackDate = localOrderDate(new Date(now));
+  const chosenDate = input.orderDate === undefined ? fallbackDate : parseOrderDate(input.orderDate);
+  if (!chosenDate) throw new Error('Order Date must be a valid calendar date.');
   const products: Record<string, Order['products'][string]> = {};
   for (const [pid, line] of Object.entries(input.products)) {
     const product = ctx.products.find((p) => p.id === pid);
@@ -129,6 +138,7 @@ function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; n
   return {
     id: opts.id ?? makeId(),
     orderNumber: input.orderNumber.trim(),
+    orderDate: chosenDate,
     customer: { ...input.customer },
     products,
     paymentStatus: input.paymentStatus,

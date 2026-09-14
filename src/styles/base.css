@@ -281,3 +281,119 @@ details.tech pre { background: #0f172a; color: #cbd5e1; padding: 10px; border-ra
 @media print {
   body { background: #fff; }
 }
+
+/* ---------- Mobile / installed PWA ---------- */
+.mobile-nav { display: none; }
+.offline-notice {
+  position: sticky; top: 58px; z-index: 35; padding: 9px 16px;
+  color: #92400e; background: var(--warning-soft); border-bottom: 1px solid #fcd34d;
+  font-size: 12.5px; font-weight: 600; text-align: center;
+}
+.order-date-field {
+  display: flex; align-items: flex-end; gap: 10px; max-width: 430px; margin-top: 14px;
+}
+.order-date-field .field { flex: 1; }
+.order-date-display {
+  min-width: 94px; padding: 9px 10px; border-radius: var(--radius-sm);
+  color: var(--secondary-dark); background: var(--secondary-soft); font-size: 13px;
+  font-weight: 700; font-variant-numeric: tabular-nums; text-align: center;
+}
+
+@media (max-width: 860px) {
+  html, body { min-width: 0; overflow-x: hidden; }
+  body { font-size: 15px; padding-bottom: env(safe-area-inset-bottom); }
+  .sidebar { display: none; }
+  .topbar { height: 58px; padding: 0 14px; gap: 8px; }
+  .topbar .page-title { font-size: 16px; }
+  .topbar .badge { display: none; }
+  .topbar .btn { min-height: 40px; padding-inline: 11px; }
+  .content { padding: 14px 12px calc(82px + env(safe-area-inset-bottom)); max-width: 100%; }
+  .page-head { align-items: stretch; margin-bottom: 14px; gap: 10px; }
+  .page-head h1 { font-size: 20px; }
+  .page-head .sub { font-size: 12.5px; }
+  .page-head > .row { width: 100%; }
+  .page-head > .row .btn { flex: 1; min-height: 42px; }
+  .mobile-nav {
+    display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch;
+    position: fixed; z-index: 100; left: 0; right: 0; bottom: 0;
+    min-height: calc(62px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(255,255,255,.98); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(15, 23, 42, .07);
+  }
+  .mobile-nav-item {
+    min-width: 0; min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; border: 0; color: var(--muted); background: none; font: 600 10px/1.15 var(--font); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-nav-item svg { width: 20px; height: 20px; }
+  .mobile-nav-item.active { color: var(--primary-dark); }
+  .mobile-nav-item.active svg { color: var(--primary); }
+  .offline-notice { top: 58px; padding: 8px 12px; font-size: 12px; }
+
+  .btn { min-height: 42px; padding: 9px 13px; font-size: 13.5px; }
+  .btn-sm { min-height: 34px; padding: 6px 9px; }
+  .btn-icon { min-width: 38px; min-height: 38px; }
+  .input, .select, .textarea { font-size: 16px; min-height: 44px; padding: 10px 11px; }
+  .textarea { min-height: 88px; }
+  .field > label { font-size: 13px; }
+  .form-grid { grid-template-columns: 1fr; gap: 14px; }
+  .section-card { margin-bottom: 12px; border-radius: 12px; }
+  .section-card > .sec-head { padding: 13px 14px; }
+  .section-card > .sec-body { padding: 14px; }
+  .order-date-field { max-width: none; margin-top: 16px; align-items: stretch; }
+  .order-date-display { display: flex; align-items: center; justify-content: center; min-width: 102px; padding: 10px 8px; }
+  .toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .toolbar .search { min-width: 0; max-width: none; grid-column: 1 / -1; }
+  .toolbar > .select, .toolbar > .input { width: 100% !important; }
+  .toolbar > div[style*="margin-left"] { grid-column: 1 / -1; margin-left: 0 !important; }
+
+  /* The desktop order table becomes compact, labelled cards on phone screens.
+     The normal table remains untouched for desktop and tablet layouts. */
+  .orders-table, .orders-table tbody, .orders-table tr, .orders-table td { display: block; width: 100%; }
+  .orders-table thead { display: none; }
+  .orders-table tr {
+    margin: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: #fff; box-shadow: var(--shadow-sm);
+  }
+  .orders-table td { min-height: 28px; padding: 6px 0; border: 0; text-align: left !important; }
+  .orders-table td:first-child { display: none; }
+  .orders-table td:not(:last-child) { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: start; }
+  .orders-table td::before { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
+  .orders-table td:nth-child(2)::before { content: 'Order'; }
+  .orders-table td:nth-child(3)::before { content: 'Customer'; }
+  .orders-table td:nth-child(4)::before { content: 'WhatsApp'; }
+  .orders-table td:nth-child(5)::before { content: 'Products'; }
+  .orders-table td:nth-child(6)::before { content: 'Amount'; }
+  .orders-table td:nth-child(7)::before { content: 'Payment'; }
+  .orders-table td:nth-child(8)::before { content: 'Status'; }
+  .orders-table td:nth-child(9)::before { content: 'Order date'; }
+  .orders-table td:nth-child(10)::before { content: 'Label'; }
+  .orders-table .tbl-actions { justify-content: stretch; gap: 7px; padding-top: 5px; }
+  .orders-table .tbl-actions .btn { flex: 1; min-height: 38px; padding: 6px 7px; }
+
+  .new-order-products { min-width: 640px; }
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .stat-card { min-height: 102px; padding: 12px; }
+  .stat-card .value { font-size: 20px; }
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal, .modal.wide { max-width: none; max-height: min(88dvh, calc(100vh - 20px)); border-radius: 16px 16px 0 0; }
+  .modal-head { padding: 14px; }
+  .modal-body { padding: 14px; }
+  .modal-foot { padding: 11px 14px calc(11px + env(safe-area-inset-bottom)); }
+  .modal-foot .btn { flex: 1; }
+  .tabs { margin: 0 -12px 14px; padding: 0 12px; }
+  .tab { min-height: 42px; padding: 10px 12px; }
+  .wizard-wrap { padding: 12px; align-items: flex-end; }
+  .wizard { border-radius: 16px; }
+  .wizard-body { padding: 22px 18px; }
+  .wizard-foot { padding: 14px 18px; }
+  .wizard .steps { padding-inline: 18px; }
+}
+
+@media (max-width: 390px) {
+  .topbar .page-title { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .btn { font-size: 0; min-width: 42px; padding: 9px; }
+  .topbar .btn svg { width: 18px; height: 18px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .order-date-display { min-width: 88px; font-size: 12px; }
+}

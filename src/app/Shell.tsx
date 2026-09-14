@@ -35,6 +35,10 @@ const NAV: { key: string; label: string; icon: ReactNode }[] = [
   { key: 'settings', label: 'Settings', icon: ICON.settings },
 ];
 
+/** Five primary destinations stay thumb-reachable in the installed PWA.
+ * The desktop sidebar retains every existing feature and quick action. */
+const MOBILE_NAV = NAV.filter((item) => ['dashboard', 'orders', 'new', 'products', 'settings'].includes(item.key));
+
 export function LogoMark({ size = 34 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 128 128" style={{ borderRadius: 9, flex: '0 0 auto' }}>
@@ -65,6 +69,14 @@ export function Shell() {
   const route = useRoute();
   const settings = useAppStore((s) => s.settings);
   const [pendingCount, setPendingCount] = useState(0);
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+
+  useEffect(() => {
+    const updateNetwork = () => setOnline(navigator.onLine);
+    window.addEventListener('online', updateNetwork);
+    window.addEventListener('offline', updateNetwork);
+    return () => { window.removeEventListener('online', updateNetwork); window.removeEventListener('offline', updateNetwork); };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -144,8 +156,20 @@ export function Shell() {
             </button>
           </div>
         </header>
+        {!online && (
+          <div className="offline-notice" role="status">
+            No internet connection. Your order is kept on this device and Google Sheets may not sync until connection is restored.
+          </div>
+        )}
         <main className="content">{content[route.name] ?? content.dashboard}</main>
       </div>
+      <nav className="mobile-nav" aria-label="Main navigation">
+        {MOBILE_NAV.map((item) => (
+          <button key={item.key} className={`mobile-nav-item ${active === item.key ? 'active' : ''}`} onClick={() => navigate(item.key)}>
+            {item.icon}<span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -9,7 +9,8 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useAppStore } from '../../store/appStore';
 import type { Order } from '../../types';
-import { formatDate, formatMoney } from '../../lib/constants';
+import { formatMoney } from '../../lib/constants';
+import { formatOrderDate, orderDateOf } from '../../lib/orderDate';
 import { DASH_RANGE_OPTIONS, DashRange, dashRangeLabel, isDashCustom, ordersInWindow, ymd } from '../../lib/dateRange';
 import { computeProductSales, salesSummary } from '../../lib/productSales';
 import { Badge, Card, EmptyState, Input, Select, orderStatusColor, paymentBadgeColor } from '../../components/ui';
@@ -40,7 +41,7 @@ export function Dashboard({ go }: { go: (r: string) => void }) {
   const rangeLabel = dashRangeLabel(range, fromD, toD);
 
   const newUnprinted = orders.filter((o) => o.orderStatus === 'New' && o.printed !== 'Printed').length;
-  const recent = useMemo(() => [...orders].sort((a, b) => b.createdAt - a.createdAt).slice(0, 8), [orders]);
+  const recent = useMemo(() => [...orders].sort((a, b) => orderDateOf(b).localeCompare(orderDateOf(a)) || b.createdAt - a.createdAt).slice(0, 8), [orders]);
   const conn = settings.demoMode ? { label: 'Demo mode', kind: 'amber' as const } : settings.spreadsheet.connected
     ? { label: `Google Sheets · ${settings.spreadsheet.connection?.worksheetName ?? ''}`, kind: 'green' as const }
     : { label: 'Not connected to a spreadsheet', kind: 'red' as const };
@@ -190,7 +191,7 @@ export function Dashboard({ go }: { go: (r: string) => void }) {
                     <td><Badge color={paymentBadgeColor(o.paymentStatus)}>{o.paymentStatus}</Badge></td>
                     <td><Badge color={orderStatusColor(o.orderStatus)}>{o.orderStatus}</Badge></td>
                     <td className="num" style={{ fontWeight: 600 }}>{formatMoney(o.totalAmount)}</td>
-                    <td className="small muted">{formatDate(o.createdAt)}</td>
+                    <td className="small muted">{formatOrderDate(orderDateOf(o))}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openPrintPage({ orderIds: [o.id], mark: true, auto: true }); }}>
                         <IconPrinter width={12} /> Print

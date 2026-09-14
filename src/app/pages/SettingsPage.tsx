@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import type { LabelFontKey, LabelSizeId, Order, Settings } from '../../types';
 import { LABEL_SIZES, ORDER_STATUSES, PAYMENT_STATUSES, demoOrders, formatDate } from '../../lib/constants';
+import { formatOrderDate, orderDateOf } from '../../lib/orderDate';
 import { Badge, Button, Card, Checkbox, ConfirmDialog, Field, Input, Select, TextArea, Toggle, downloadFile } from '../../components/ui';
 import { IconDownload, IconUpload, IconLink } from '../../components/icons';
 import { LS, storage, inExtension } from '../../services/storage';
-import { isClientConfigured } from '../../services/google/oauth';
 import { backupFileName, buildFullBackup, parseBackupFile, restoreBackup, type BackupFile } from '../../services/backup';
 import { bgAuthConnect, bgSyncPendingOrders, bgListSpreadsheets, bgListWorksheets } from '../../services/messaging';
 import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
@@ -166,14 +166,9 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
   const [worksheets, setWorksheets] = useState<string[] | null>(null);
   const [sheetId, setSheetId] = useState('');
   const [worksheet, setWorksheet] = useState('');
-  const [showOauthHelp, setShowOauthHelp] = useState(false);
 
   const conn = settings.spreadsheet.connection;
-  const extId = typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : '';
-  const clientId = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
-    ? (() => { try { return ((chrome.runtime.getManifest() as { oauth2?: { client_id?: string } }).oauth2?.client_id ?? '').trim(); } catch { return ''; } })()
-    : '';
-  const clientReady = isClientConfigured();
+  const webApp = !inExtension();
 
   /** Open the spreadsheet picker (also auto-runs right after connecting). */
   const pickSpreadsheet = async () => {
@@ -195,7 +190,6 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
   };
 
   const connect = async () => {
-    if (!inExtension()) { toast('error', 'Google sign-in requires the Chrome extension', { message: 'Load the built extension in Chrome (see README) — or enable Demo Mode below.' }); return; }
     setBusy(true);
     try {
       const res = await bgAuthConnect();
@@ -208,9 +202,8 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
       const err = e as { code?: string; technical?: string; message?: string };
       console.error('[spreadsheet] auth technical detail:', err.technical ?? (e instanceof Error ? e.message : e));
       if (err.code === 'not_configured') {
-        toast('error', 'Google OAuth is not configured yet', {
-          message: 'Open “Google OAuth setup” below and paste your OAuth Client ID (one-time, ~2 minutes).',
-          actions: [{ label: 'Show Setup', onClick: () => setShowOauthHelp(true) }],
+        toast('error', 'Google sign-in is not available', {
+          message: 'Please contact your app administrator to enable Google Sheets connection for this build.',
         });
       } else {
         toast('error', 'Google connection could not be completed. Please reconnect your Google Account.', {
@@ -271,8 +264,8 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
           )}
           {!demo && !conn && (
             <div className="col" style={{ gap: 8 }}>
-              <p>Connect your Google account to store orders in Google Sheets. The extension uses Chrome&rsquo;s official Google sign-in and keeps no password or token itself. Your account is picked in the Google window that opens.</p>
-              <Button variant="secondary" style={{ alignSelf: 'flex-start' }} onClick={() => void connect()} disabled={busy}>{busy ? <span className="spinner" /> : 'Connect Google Account'}</Button>
+              <p>Connect your Google account to store orders in Google Sheets. The same secure sign-in and Sheets logic is used in the extension and the installed web app; no Google password is stored by the app.</p>
+              <Button variant="secondary" style={{ alignSelf: 'flex-start' }} onClick={() => void connect()} disabled={busy}>{busy ? <span className="spinner" /> : webApp ? 'Sign in with Google' : 'Connect Google Account'}</Button>
               <Button variant="outline" style={{ alignSelf: 'flex-start' }} onClick={() => void toggleDemo(true)}>or use Demo Mode</Button>
             </div>
           )}
@@ -320,39 +313,16 @@ function SpreadsheetTab({ go }: { go: (r: string) => void }) {
               )}
             </>
           )}
-          <p className="hint">Rows are written only by this extension. If you already have a spreadsheet with data, its columns are detected and reused — the first row is treated as the header row.</p>
+          <p className="hint">Rows are written by this app to your selected Google Sheet. Existing columns are detected and reused — the first row remains the header row. Order Date is written as safe DD/MM/YYYY text.</p>
         </div>
       </Card>
 
-      {/* One-time Google OAuth setup — shows the exact values the Google Cloud
-          project must match (extension ID + client id from the manifest). */}
-      <Card title="Google OAuth setup" actions={clientReady ? <Badge color="green">Client ID set</Badge> : <Badge color="red">Needs setup</Badge>}>
-        <div className="card-pad col" style={{ gap: 8 }}>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <Field label="Your extension ID" hint="shown in chrome://extensions and used as the Item ID in Google Cloud">
-              <Input value={extId || 'load the extension to see it'} disabled className="mono" style={{ width: 320 }} />
-            </Field>
-            <Field label="OAuth client ID (manifest.json → oauth2 → client_id)" hint="the only place the client id is configured — no code edits needed, then reload the extension">
-              <Input value={clientId} disabled className="mono" style={{ width: 420 }} />
-            </Field>
-          </div>
-          <div className="row" style={{ gap: 8 }}>
-            <Button size="sm" variant="outline" onClick={() => setShowOauthHelp(!showOauthHelp)}>{showOauthHelp ? 'Hide instructions' : 'Show setup instructions'}</Button>
-            {!clientReady && clientId && (
-              <span className="hint" style={{ alignSelf: 'center' }}>“{clientId.slice(0, 30)}…” does not look like a real Client ID (ends with .apps.googleusercontent.com).</span>
-            )}
-          </div>
-          {showOauthHelp && (
-            <ol style={{ fontSize: 12.5, lineHeight: 1.7, paddingLeft: 20, margin: 0, color: 'var(--text)' }}>
-              <li>Open <a href="https://console.cloud.google.com/apis" target="_blank" rel="noreferrer">Google Cloud Console → APIs &amp; Services</a> and pick/create your project.</li>
-              <li>Enable <b>Google Sheets API</b> and <b>Google Drive API</b> (Library → search each → Enable).</li>
-              <li>Open <b>Google Auth → Clients</b>, press <b>Create Client</b>, application type <b>Chrome Extension</b>.</li>
-              <li>Paste your <b>extension ID</b> (the value above / chrome://extensions) into the <b>Item ID</b> field and create the client.</li>
-              <li>Copy the generated <b>Client ID</b> and paste it into <span className="mono">manifest.json → "oauth2" → "client_id"</span> in the extension folder (the single configuration spot).</li>
-              <li>Click <b>Reload</b> on chrome://extensions, come back here and press <b>Connect Google Account</b>.</li>
-            </ol>
-          )}
-          {clientReady && <p className="hint" style={{ margin: 0 }}>Client ID is configured — “Connect Google Account” will open Google&rsquo;s official sign-in for this extension.</p>}
+      <Card title="Google account security">
+        <div className="card-pad">
+          <p className="hint">{webApp
+            ? 'This installed web app opens Google’s secure sign-in when you connect. App OAuth configuration is managed at deployment and is never exposed as an editable user setting.'
+            : 'This extension uses Chrome’s secure Google sign-in. App OAuth configuration is managed separately from your order settings.'}
+          </p>
         </div>
       </Card>
       <ConfirmDialog open={confirmDisconnect} title="Disconnect Google Sheets?" danger busy={busy}
@@ -705,10 +675,10 @@ function BackupTab({ go }: { go: (r: string) => void }) {
     if (format === 'json') {
       downloadFile(`orders-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 2), 'application/json');
     } else {
-      const headers = ['Order Number', 'Previous Order Number', 'Previous Sequence Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
+      const headers = ['Order Number', 'Order Date', 'Previous Order Number', 'Previous Sequence Order Number', 'Customer Name', 'WhatsApp', 'Mobile', 'Address', 'City', 'State', 'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Transaction ID', 'Order Status', 'Amount', 'Label', 'Created At'];
       const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
       const lines = [headers.join(','), ...all.map((o) => [
-        o.orderNumber, o.previousOrderNumber ?? '', o.previousSequenceOrderNumber ?? '', o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
+        o.orderNumber, formatOrderDate(orderDateOf(o)), o.previousOrderNumber ?? '', o.previousSequenceOrderNumber ?? '', o.customer.name, o.customer.whatsapp, o.customer.mobile, o.customer.address, o.customer.city, o.customer.state, o.customer.pincode,
         Object.values(o.products).map((pr) => `${pr.productName} x${pr.quantity}`).join(' | '),
         o.paymentStatus, o.paymentMethod, o.transactionId, o.orderStatus, o.totalAmount, o.printed, formatDate(o.createdAt, true),
       ].map(esc).join(','))];

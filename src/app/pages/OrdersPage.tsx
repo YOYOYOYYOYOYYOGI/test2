@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore, toast } from '../../store/appStore';
 import type { Order } from '../../types';
-import { formatDate, formatMoney, startOfDay, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../lib/constants';
+import { formatDate, formatMoney, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../lib/constants';
+import { formatOrderDate, localOrderDate, orderDateOf } from '../../lib/orderDate';
 import { hasDeliverySettings } from '../../lib/delivery';
 import { orderDelivery, orderSubtotal, orderTotal } from '../../lib/format';
 import { Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Pagination, Select, paymentBadgeColor, orderStatusColor } from '../../components/ui';
@@ -15,7 +16,7 @@ import { downloadBlob, prepareOrdersExport } from '../../services/excelExport';
 import { applyFullImport, fullWorkbook, readFullWorkbook, type FullImportPlan } from '../../services/dataExchange';
 import { downloadOrderLabelPdf, labelDownloadErrorMessage } from '../../services/labelDownload';
 
-type DateFilter = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
+type DateFilter = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'customDate' | 'customRange';
 
 export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) {
   const orders = useAppStore((s) => s.orders);
@@ -180,19 +181,24 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
     if (pay !== 'all') list = list.filter((o) => o.paymentStatus === pay);
     if (method !== 'all') list = list.filter((o) => o.paymentMethod === method);
     if (status !== 'all') list = list.filter((o) => o.orderStatus === status);
-    const now = Date.now();
-    const day = 86400000;
-    const todayStart = startOfDay(now);
-    if (date === 'today') list = list.filter((o) => o.createdAt >= todayStart);
-    if (date === 'yesterday') list = list.filter((o) => o.createdAt >= todayStart - day && o.createdAt < todayStart);
-    if (date === '7d') list = list.filter((o) => o.createdAt >= todayStart - 7 * day);
-    if (date === '30d') list = list.filter((o) => o.createdAt >= todayStart - 30 * day);
-    if (date === 'custom' && fromD && toD) {
-      const f = new Date(`${fromD}T00:00:00`).getTime();
-      const t = new Date(`${toD}T23:59:59`).getTime();
-      if (Number.isFinite(f) && Number.isFinite(t)) list = list.filter((o) => o.createdAt >= f && o.createdAt <= t);
+    // Business filters use the user-selected Order Date, never the timestamp
+    // when this record happened to be entered in the browser.
+    const today = localOrderDate();
+    const at = (deltaDays: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + deltaDays);
+      return localOrderDate(d);
+    };
+    if (date === 'today') list = list.filter((o) => orderDateOf(o) === today);
+    if (date === 'yesterday') list = list.filter((o) => orderDateOf(o) === at(-1));
+    if (date === '7d') list = list.filter((o) => orderDateOf(o) >= at(-7) && orderDateOf(o) <= today);
+    if (date === '30d') list = list.filter((o) => orderDateOf(o) >= at(-30) && orderDateOf(o) <= today);
+    if (date === 'customDate' && fromD) list = list.filter((o) => orderDateOf(o) === fromD);
+    if (date === 'customRange' && fromD) {
+      const until = toD && toD >= fromD ? toD : fromD;
+      list = list.filter((o) => orderDateOf(o) >= fromD && orderDateOf(o) <= until);
     }
-    return [...list].sort((a, b) => b.createdAt - a.createdAt);
+    return [...list].sort((a, b) => orderDateOf(b).localeCompare(orderDateOf(a)) || b.createdAt - a.createdAt);
   }, [orders, q, pay, method, status, date, fromD, toD]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / perPage));
@@ -316,12 +322,16 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
             <option value="yesterday">Yesterday</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
-            <option value="custom">Custom…</option>
+            <option value="customDate">Custom Date…</option>
+            <option value="customRange">Custom Date Range…</option>
           </Select>
-          {date === 'custom' && (
+          {date === 'customDate' && (
+            <Input type="date" aria-label="Custom order date" value={fromD} onChange={(e) => setFromD(e.target.value)} style={{ width: 140 }} />
+          )}
+          {date === 'customRange' && (
             <>
-              <Input type="date" value={fromD} onChange={(e) => setFromD(e.target.value)} style={{ width: 140 }} />
-              <Input type="date" value={toD} onChange={(e) => setToD(e.target.value)} style={{ width: 140 }} />
+              <Input type="date" aria-label="Order date from" value={fromD} onChange={(e) => setFromD(e.target.value)} style={{ width: 140 }} />
+              <Input type="date" aria-label="Order date to" value={toD} onChange={(e) => setToD(e.target.value)} style={{ width: 140 }} />
             </>
           )}
           <div style={{ marginLeft: 'auto' }} className="row">
@@ -344,7 +354,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
         <>
           <div className="card">
             <div className="table-wrap">
-              <table className="tbl">
+              <table className="tbl orders-table">
                 <thead>
                   <tr>
                     <th style={{ width: 34 }}><Checkbox checked={selected.size === paged.length && paged.length > 0} onChange={toggleAll} /></th>
@@ -355,7 +365,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
                     <th className="num">Amount</th>
                     <th>Payment</th>
                     <th>Status</th>
-                    <th>Created</th>
+                    <th>Order Date</th>
                     <th>Label</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
@@ -364,7 +374,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
                   {paged.map((o) => (
                     <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setView(o)}>
                       <td onClick={(e) => e.stopPropagation()}><Checkbox checked={selected.has(o.id)} onChange={() => toggleOne(o.id)} /></td>
-                      <td><b className="mono">{o.orderNumber}</b><br /><span className="small muted">{formatDate(o.createdAt, true)}</span></td>
+                      <td><b className="mono">{o.orderNumber}</b><br /><span className="small muted">{formatOrderDate(orderDateOf(o))}</span></td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{o.customer.name || '—'}</div>
                         <div className="small muted">{o.customer.city}{o.customer.state ? `, ${o.customer.state}` : ''}</div>
@@ -379,7 +389,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
                       <td className="num" style={{ fontWeight: 700 }}>{o.totalAmount ? formatMoney(o.totalAmount) : '—'}</td>
                       <td><Badge color={paymentBadgeColor(o.paymentStatus)}>{o.paymentStatus}</Badge>{o.transactionId && <div className="small muted mono">{o.transactionId}</div>}</td>
                       <td><Badge color={orderStatusColor(o.orderStatus)}>{o.orderStatus}</Badge></td>
-                      <td className="small muted" style={{ whiteSpace: 'nowrap' }}>{formatDate(o.createdAt)}</td>
+                      <td className="small muted" style={{ whiteSpace: 'nowrap' }}>{formatOrderDate(orderDateOf(o))}</td>
                       <td>{o.printed === 'Printed' ? <Badge color="green">Printed</Badge> : <Badge color="gray">Not Printed</Badge>}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="tbl-actions">
@@ -531,6 +541,7 @@ function OrderDetailsModal({ order, onClose, onEdit, onLabel, onDuplicate, onDel
           <h4 style={{ fontSize: 13, marginBottom: 8, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Status</h4>
           <p><Badge color={orderStatusColor(order.orderStatus)}>{order.orderStatus}</Badge></p>
           {order.previousOrderNumber && <p className="small">Previous order: <span className="mono">{order.previousOrderNumber}</span></p>}
+          <p className="small">Order Date: <b>{formatOrderDate(orderDateOf(order))}</b></p>
           <p className="small">Label: {order.printed}{order.printedAt ? ` · ${formatDate(order.printedAt, true)}` : ''}</p>
           <p className="small muted">Created {formatDate(order.createdAt, true)}<br />Updated {formatDate(order.updatedAt, true)}</p>
         </div>

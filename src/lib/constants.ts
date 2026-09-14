@@ -73,6 +73,7 @@ export const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
 
 export const DEFAULT_FIELD_TYPES: Record<string, FieldType> = {
   'Order Number': 'text',
+  'Order Date': 'date',
   'Customer Name': 'text',
   'WhatsApp Number': 'phone',
   'Mobile Number': 'phone',
@@ -90,6 +91,7 @@ export const DEFAULT_FIELD_TYPES: Record<string, FieldType> = {
 
 export const FIELD_KEY_HINTS: Record<string, FieldValueKind | undefined> = {
   'Order Number': 'orderNumber',
+  'Order Date': 'orderDate',
   'Customer Name': 'customerName',
   'WhatsApp Number': 'customerWhatsapp',
   'Mobile Number': 'customerMobile',
@@ -183,7 +185,7 @@ export const DEMO_COLUMNS = [
   'Order Number', 'Customer Name', 'WhatsApp Number', 'Mobile Number', 'Address', 'City', 'State',
   'Pincode', 'Products', 'Payment Status', 'Payment Method', 'Payment Amount', 'Order Status',
   'Night Cream Qty', 'Day Cream Qty', 'Face Serum Qty', 'Sunscreen Qty', 'Face Wash Qty',
-  'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At',
+  'Order Date', 'Delivery Charge', 'Total', 'Previous Order Number', 'Previous Sequence Order Number', 'Label Status', 'Printed At', 'Created At', 'Updated At',
 ];
 
 export function demoOrders(): Order[] {
@@ -197,6 +199,7 @@ export function demoOrders(): Order[] {
     return {
       id,
       orderNumber,
+      orderDate: (() => { const d = new Date(now - createdOffsetMs); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
       customer: {
         name, whatsapp: wa, mobile,
         address: `${Math.floor(Math.random() * 900) + 10} Main Road`, city,
@@ -254,13 +257,13 @@ export function formatMoney(n: number): string {
 export function formatDate(ts: number | null | undefined, includeTime = false): string {
   if (!ts) return '—';
   const d = new Date(ts);
-  try {
-    const date = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    if (!includeTime) return date;
-    return `${date}, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-  } catch {
-    return d.toISOString().slice(0, 10);
-  }
+  if (Number.isNaN(d.getTime())) return '—';
+  // Local presentation only; business/reporting dates use orderDateOf() so a
+  // manually selected order day never gets converted through this timestamp.
+  const p = (n: number) => String(n).padStart(2, '0');
+  const date = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+  if (!includeTime) return date;
+  return `${date}, ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 export function startOfDay(ts: number): number {

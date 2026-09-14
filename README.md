@@ -1,7 +1,6 @@
-# Order Label Manager — WhatsApp Orders → Google Sheets → Print Labels
+# Order Label Manager — Chrome Extension + Mobile PWA
 
-A complete **Chrome extension (Manifest V3)** for small businesses that receive
-orders on WhatsApp. Enter a customer order once and the extension:
+A responsive **Chrome extension (Manifest V3)** and installable **mobile web app/PWA** for small businesses that receive orders on WhatsApp. Enter a customer order once and the extension:
 
 1. validates the order (phone, pincode, required fields, duplicates),
 2. appends it as **one new row** in your **Google Sheets** spreadsheet
@@ -37,6 +36,18 @@ order becomes a new row.
 
 Estimated time for one order: ~30–60 seconds.
 
+### Desktop extension and mobile PWA
+
+- **Desktop:** load the built Chrome extension exactly as before.
+- **Mobile/tablet:** host the same `dist/` folder over HTTPS, open its `index.html`
+  in Chrome/Safari and choose **Install app / Add to Home Screen**. The PWA uses
+  the same React pages, order model, validation, label/PDF, exports, backup, and
+  Google Sheets sync engine—there is no second application database. Google
+  Sheets is the shared business record; local browser storage is a resilient cache
+  and queues an order if a connection is unavailable.
+- The web build contains `app.webmanifest` and `service-worker.js`; these are
+  deliberately separate from the extension's `manifest.json` (MV3).
+
 ### Popup vs full app
 
 - The **popup** (extension icon) gives quick access: *New Order*, *Search*,
@@ -50,15 +61,17 @@ Estimated time for one order: ~30–60 seconds.
 
 ```bash
 npm install
-npm run dev        # Vite dev server (UI-only preview; Google sign-in needs Chrome)
+npm run dev        # Vite dev server (responsive PWA/UI preview)
 npm run typecheck  # TypeScript check
 npm test           # unit/integration tests (vitest)
 ```
 
-> Running `npm run dev` and opening http://localhost:5173 in a plain browser
-> works for the UI and **Demo Mode**, but Google sign-in requires the actual
-> extension (chrome.identity). Load the built `dist/` in Chrome for the full
-> OAuth flow.
+> The plain browser build is installable as a PWA when served through HTTPS.
+> To enable Google sign-in in a deployed PWA, configure the deploy-time
+> `VITE_GOOGLE_WEB_CLIENT_ID` environment variable with a Google **Web
+> application** OAuth client whose authorized JavaScript origin is your HTTPS
+> app URL. It is deployment configuration, never an editable user setting. The
+> Chrome extension continues to use its MV3 `chrome.identity` client separately.
 
 ### Project layout
 
@@ -77,8 +90,10 @@ src/
   styles/         design system + print CSS
   types/          domain types
 public/
-  manifest.json   MV3 manifest
-  icons/          extension icons (16/32/48/128/256)
+  manifest.json       MV3 extension manifest
+  app.webmanifest     PWA web manifest
+  service-worker.js   PWA shell cache
+  icons/              shared extension/PWA icons (16/32/48/128/192/256/512)
 tests/            vitest suite
 scripts/          make-icons, postbuild, package (zip)
 ```
@@ -88,8 +103,9 @@ scripts/          make-icons, postbuild, package (zip)
 ## 3. Build
 
 ```bash
-npm run build      # typecheck + vite UI build + background build + postbuild
-npm run package    # npm run build + zip → release/order-label-manager-v1.0.0.zip
+npm run build      # typecheck + Vite UI build + background build + PWA precache
+npm run zip        # build + zip → release/order-label-manager-v1.0.10.zip
+# npm run package  # package the already-built dist/ folder
 ```
 
 The production extension is the **`dist/`** folder:
@@ -106,15 +122,13 @@ dist/
 ```
 
 Load `dist/` in Chrome as described above. A ready-to-share ZIP is written to
-`release/order-label-manager-v1.0.0.zip` and copied to the repository root.
+`release/order-label-manager-v1.0.10.zip` and copied to the repository root.
 
 ---
 
 ## 4. Google Sheets setup (one time, ~10 minutes)
 
-Step-by-step guide: **[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md)** — the
-in-app helper at **Settings → Spreadsheet → “Google OAuth setup”** shows your
-exact extension ID and the current client-id status.
+Step-by-step extension developer guide: **[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md)**. OAuth clients are application/deployment configuration, kept outside normal user settings.
 
 Summary:
 
@@ -179,7 +193,7 @@ Google's APIs.
   appended after the last header, and **only if missing**.
 - Product quantity columns follow the pattern **`<Product> Qty`**
   (e.g. `Night Cream Qty`). Products not in an order are written as `0`.
-- System columns: `Delivery Charge`, `Total`, `Previous Order Number`,
+- System columns: `Order Date` (safe `DD/MM/YYYY` text), `Delivery Charge`, `Total`, `Previous Order Number`,
   `Previous Sequence Order Number`, `Label Status`, `Printed At`,
   `Created At`, `Updated At` — order numbers, previous-order chains and the
   sequence reference are always written as TEXT (never `15000.0` or
@@ -188,6 +202,17 @@ Google's APIs.
   **existing row** in place.
 - Deleting an order in the app never deletes the spreadsheet row (the sheet is
   the source of truth; use it if you must undo).
+
+### Order Date
+
+Every new order has a required, editable **Order Date**. It defaults to the
+current local day, but is stored as a `YYYY-MM-DD` calendar value—not a browser
+creation timestamp—so it is safe to back-enter an order from another day. The
+app displays it as `DD/MM/YYYY` and uses it for dashboard reporting, Orders
+filters, Today's Orders downloads, Excel, full export/import, and the Google
+Sheets `Order Date` column. Editing an order updates the same row and preserves
+the selected date. Legacy saved orders retain their historical `createdAt` day
+until they are edited.
 
 ### Examples
 
@@ -220,16 +245,17 @@ After enabling products Night Cream & Face Serum + saving orders:
   currency, product, quantity, payment status, order status
 - Products: name, SKU, price, label name, active flag, optional qty column per
   product
-- New order screen designed for speed (auto next number, product picker with
-  steppers, total, clipboard import)
+- Mobile-first responsive New Order screen: manual order number, editable Order
+  Date (defaults to today), product picker with touch steppers, total, and
+  clipboard import
 - WhatsApp clipboard parser (Customer/Phone/Product xN/Paid …) — optional
 - Duplicate-order protection (View / Edit existing / Create anyway)
 - Validation with inline errors (10-digit phones, pincodes, emails, quantities,
   amounts)
 - Orders page: search (order no./customer/phone/pincode/product), filters
-  (payment status, **payment method**, order status, **date: Today /
-  Yesterday / Last 7 days / Last 30 days / Custom** — filters combine), pagination,
-  row actions
+  (payment status, **payment method**, order status, **Order Date: Today /
+  Yesterday / Last 7 days / Last 30 days / Custom Date / Custom Date Range** — filters combine), pagination,
+  row actions; compact labelled cards on phone screens
 - **Download Filtered Orders** — exports exactly the rows currently visible
   after the filters + search (`orders-filtered-YYYY-MM-DD.xlsx`), alongside
   Download Today's Orders / Download All Orders

@@ -8,6 +8,7 @@ import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, formatMoney } from '
 import { Button, Checkbox, Field, Input, Modal, Select, TextArea } from '../../components/ui';
 import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons';
 import { validatePincode, validatePhone, validateEmail } from '../../lib/format';
+import { isOrderDate, localOrderDate, orderDateOf } from '../../lib/orderDate';
 import { COMPUTED_FIELD_KEYS } from '../../services/config';
 import { isSimpleOrderNumber, previousSequenceOrderFor } from '../../services/orders';
 import { normalizeOrderNumber, normalizePhone, phoneSearchable } from '../../lib/normalizePhone';
@@ -20,6 +21,8 @@ import { LabelPreviewModal } from '../../components/label/LabelPreviewModal';
 
 interface FormState {
   orderNumber: string;
+  /** Calendar day selected by the user; ISO text avoids UTC/timezone shifts. */
+  orderDate: string;
   customer: { name: string; whatsapp: string; mobile: string; address: string; city: string; state: string; pincode: string };
   selected: { productId: string; productName: string; price: number; qty: string }[];
   paymentStatus: string;
@@ -47,6 +50,7 @@ function emptyForm(settings: Settings, fields: OrderField[]): FormState {
   }
   return {
     orderNumber: '',
+    orderDate: localOrderDate(),
     customer: { name: '', whatsapp: '', mobile: '', address: '', city: '', state: '', pincode: '' },
     selected: [],
     paymentStatus: settings.order.defaultPaymentStatus || 'Pending',
@@ -64,6 +68,7 @@ function emptyForm(settings: Settings, fields: OrderField[]): FormState {
 function formFieldValue(form: FormState, f: OrderField): string | number | boolean {
   switch (String(f.key)) {
     case 'orderNumber': return form.orderNumber.trim();
+    case 'orderDate': return form.orderDate;
     case 'customerName': return form.customer.name;
     case 'customerWhatsapp': return form.customer.whatsapp;
     case 'customerMobile': return form.customer.mobile;
@@ -86,6 +91,7 @@ function orderToForm(o: Order, settings: Settings): FormState {
   for (const [k, v] of Object.entries(o.customFields ?? {})) custom[k] = v as string;
   return {
     orderNumber: o.orderNumber,
+    orderDate: orderDateOf(o),
     customer: { ...o.customer },
     selected: Object.values(o.products).map((p) => ({
       productId: p.productId,
@@ -303,6 +309,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     } else if (orders.some((o) => o.id !== editing?.id && o.orderNumber.trim().toLowerCase() === on.toLowerCase())) {
       errs.orderNumber = 'This order number already exists. Please enter a different order number.';
     }
+    if (!isOrderDate(form.orderDate)) errs.orderDate = 'Please choose a valid order date.';
     const requiredKeys = ['customerName', 'customerWhatsapp', 'customerAddress'];
     for (const key of requiredKeys) {
       const f = reqField(key);
@@ -374,6 +381,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
       for (const [k, v] of Object.entries(form.custom)) if (String(v) !== '') customValues[k] = v;
       const input = {
         orderNumber: form.orderNumber.trim(),
+        orderDate: form.orderDate,
         customer: { ...form.customer },
         products: productsRecord,
         paymentStatus: form.paymentStatus as Order['paymentStatus'],
@@ -586,6 +594,12 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
               )}
             </div>
           </div>
+          <div className="order-date-field">
+            <Field label="Order Date" required error={errors.orderDate} hint="Business date used for dashboard, order filters, exports and Google Sheets. Stored as a calendar day.">
+              <Input id="order-date" type="date" value={form.orderDate} invalid={Boolean(errors.orderDate)} onChange={(e) => set({ orderDate: e.target.value })} />
+            </Field>
+            <div className="order-date-display" aria-live="polite">{form.orderDate ? form.orderDate.split('-').reverse().join('/') : 'DD/MM/YYYY'}</div>
+          </div>
           {!anySpreadsheet && (
             <div style={{ marginTop: 10, background: 'var(--warning-soft)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5 }}>
               ⚠️ No spreadsheet connected — orders will only be saved locally. Connect Google Sheets in Settings when you're ready.
@@ -665,7 +679,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
             </div>
           ) : (
             <div className="table-wrap" style={{ border: '1px solid var(--border)', borderRadius: 9 }}>
-              <table className="tbl">
+              <table className="tbl new-order-products">
                 <thead>
                   <tr><th style={{ width: 46 }}>#</th><th>Product</th><th style={{ width: 110 }} className="num">Price</th><th style={{ width: 130 }}>Quantity</th><th style={{ width: 130 }} className="num">Amount</th><th style={{ width: 44 }} /></tr>
                 </thead>

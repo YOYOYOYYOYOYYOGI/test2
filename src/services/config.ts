@@ -39,6 +39,7 @@ export function defaultFieldTemplate(): OrderField[] {
   });
   const names: [string, boolean][] = [
     ['Order Number', true],
+    ['Order Date', true],
     ['Customer Name', true],
     ['WhatsApp Number', true],
     ['Mobile Number', false],
@@ -64,7 +65,7 @@ export function defaultFieldTemplate(): OrderField[] {
 
 /** Which fields should be excluded from the label by default. */
 export function defaultLabelExclusions(): Set<string> {
-  return new Set(['Notes', 'Transaction ID', 'Payment Amount', 'Order Number', 'Order Status']);
+  return new Set(['Notes', 'Transaction ID', 'Payment Amount', 'Order Number', 'Order Date', 'Order Status']);
 }
 
 export function labelFieldIds(fields: OrderField[], settings: Settings): string[] {

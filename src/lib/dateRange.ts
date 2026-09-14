@@ -2,10 +2,11 @@
 // Dashboard date-filter helpers — pure functions (no DOM/storage).
 //
 // Windows are half-open [start, end) in LOCAL time, computed from each
-// order's real createdAt timestamp.
+// order's saved business Order Date (legacy orders fall back to createdAt).
 // ---------------------------------------------------------------------------
 import type { Order } from '../types';
 import { startOfDay } from './constants';
+import { formatOrderDate, localOrderDate, orderDateOf } from './orderDate';
 
 export type DashRange = 'today' | 'tomorrow' | 'yesterday' | '7d' | '30d' | 'date' | 'range';
 
@@ -37,42 +38,50 @@ export function dayStart(value: string): number | null {
 }
 
 /** [start, end) window for the selected filter; null when inputs are missing. */
+function plusCalendarDays(localStart: number, count: number): number {
+  const d = new Date(localStart);
+  d.setDate(d.getDate() + count);
+  return d.getTime();
+}
+
 export function dashWindow(range: DashRange, fromD: string, toD: string, now: number = Date.now()): [number, number] | null {
-  const day = 86400000;
   const todayStart = startOfDay(now);
+  const nextDay = (start: number) => plusCalendarDays(start, 1);
   switch (range) {
-    case 'today': return [todayStart, todayStart + day];
-    case 'tomorrow': return [todayStart + day, todayStart + 2 * day];
-    case 'yesterday': return [todayStart - day, todayStart];
-    case '7d': return [todayStart - 7 * day, todayStart + day];
-    case '30d': return [todayStart - 30 * day, todayStart + day];
+    case 'today': return [todayStart, nextDay(todayStart)];
+    case 'tomorrow': { const tomorrow = nextDay(todayStart); return [tomorrow, nextDay(tomorrow)]; }
+    case 'yesterday': return [plusCalendarDays(todayStart, -1), todayStart];
+    case '7d': return [plusCalendarDays(todayStart, -7), nextDay(todayStart)];
+    case '30d': return [plusCalendarDays(todayStart, -30), nextDay(todayStart)];
     case 'date': {
       const f = dayStart(fromD || toD);
-      return f === null ? null : [f, f + day];
+      return f === null ? null : [f, nextDay(f)];
     }
     case 'range': {
       const f = dayStart(fromD);
       if (f === null) return null;
       const t = dayStart(toD);
-      const end = t === null ? f + day : t + day;
-      return end > f ? [f, end] : [f, f + day];
+      const end = t === null ? nextDay(f) : nextDay(t);
+      return end > f ? [f, end] : [f, nextDay(f)];
     }
     default: return null;
   }
 }
 
-/** Orders inside the window (createdAt is the order's real creation time). */
+/** Orders inside the window, based on their saved business Order Date.
+ * Legacy rows without orderDate retain their createdAt day. */
 export function ordersInWindow(orders: Order[], range: DashRange, fromD: string, toD: string, now: number = Date.now()): Order[] {
   const win = dashWindow(range, fromD, toD, now);
   if (!win) return [];
+  const from = ymd(new Date(win[0]));
+  const until = ymd(new Date(win[1]));
   return orders.filter((o) => {
-    const ts = o.createdAt ?? 0;
-    return ts >= win[0] && ts < win[1];
+    const date = orderDateOf(o);
+    return date >= from && date < until;
   });
 }
 
-const fmtDate = (ms: number) =>
-  new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const fmtDate = (ms: number) => formatOrderDate(localOrderDate(new Date(ms)));
 
 /** Human label for the filter, e.g. "Today", "Yesterday", "05–07 Sep 2026". */
 export function dashRangeLabel(range: DashRange, fromD: string, toD: string, now: number = Date.now()): string {

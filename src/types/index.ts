@@ -21,6 +21,7 @@ export type FieldType =
 /** How a field's value flows into the spreadsheet row */
 export type FieldValueKind =
   | 'orderNumber'
+  | 'orderDate'
   | 'customerName'
   | 'customerWhatsapp'
   | 'customerMobile'
@@ -167,6 +168,8 @@ export interface MatchingConfig {
 export interface Order {
   id: string;
   orderNumber: string;
+  /** Business calendar day (YYYY-MM-DD). Kept separate from createdAt so reporting never changes a manually entered date. */
+  orderDate?: string;
   customer: CustomerData;
   /** Keyed by product id for fast spreadsheet lookup; kept in insertion order */
   products: Record<string, OrderProduct>;
