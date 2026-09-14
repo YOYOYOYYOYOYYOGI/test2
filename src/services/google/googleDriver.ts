@@ -154,7 +154,7 @@ export class GoogleSheetsDriver implements DriverLike {
   async getGrid(state: SheetState, lastRow?: number): Promise<string[][]> {
     const sheet = state?.worksheetName ?? this.connection.worksheetName;
     const maxRow = lastRow ?? 500;
-    const rows = await this.values(sheet, `A1:${a1Col(40)}${maxRow}`);
+    const rows = await this.values(sheet, `A1:${a1Col(100)}${maxRow}`);
     return rows.map((r) => r.map((v) => String(v ?? '')));
   }
 

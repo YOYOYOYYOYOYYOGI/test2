@@ -9,6 +9,9 @@ import { clearCachedGoogleTokens, connectionFromSession, getGoogleAuthToken, goo
 import { GoogleSheetsDriver } from './google/googleDriver';
 import { DemoDriver } from './spreadsheet/demoDriver';
 import { SpreadsheetEngine } from './spreadsheet/engine';
+import { bindOrderColumns, parseOrderRow } from './dataExchange';
+import { localOrderDate } from '../lib/orderDate';
+import { makeId } from '../lib/constants';
 
 export type SheetOp =
   | { kind: 'ensureSchema'; fields: OrderField[]; products: Product[]; settings: Settings }
@@ -99,15 +102,103 @@ async function pwaDisconnect(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+/** Turn an existing Orders worksheet into the app's normal order cache.
+ * This runs only in the PWA after the user picks a sheet, so a phone can work
+ * with the same business history as the desktop extension.  It uses the
+ * existing import bindings rather than a second cloud data model. */
+export function mergePwaSheetOrders(grid: string[][], state: Awaited<ReturnType<typeof storage.loadAll>>): Order[] {
+  const headers = grid[0] ?? [];
+  const bindings = bindOrderColumns(headers, state.fields, state.settings);
+  const byNumber = new Map(state.orders.map((order) => [order.orderNumber.trim().toLowerCase(), order]));
+  const next = [...state.orders];
+  const qtyColumns = headers
+    .map((name, index) => ({ name: String(name ?? '').replace(/\s+qty\s*$/i, '').trim(), index, isQty: /\s+qty\s*$/i.test(String(name ?? '')) }))
+    .filter((column) => column.isQty && column.name);
+  const now = Date.now();
+
+  for (let index = 1; index < grid.length; index += 1) {
+    const parsed = parseOrderRow(grid[index] ?? [], bindings, index + 1);
+    if (!parsed) continue;
+    const key = parsed.orderNumber.toLowerCase();
+    const existing = byNumber.get(key);
+    // Never overwrite an order still waiting to be written from this device.
+    if (existing?.pendingSync) continue;
+    const products: Order['products'] = {};
+    for (const column of qtyColumns) {
+      const quantity = Number(String(grid[index]?.[column.index] ?? '').replace(/[,\s]/g, ''));
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      const configured = state.products.find((product) => product.name.trim().toLowerCase() === column.name.toLowerCase());
+      const productId = configured?.id ?? `sheet-product-${column.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || column.index}`;
+      products[productId] = {
+        productId,
+        productName: configured?.name ?? column.name,
+        sku: configured?.sku,
+        labelName: configured?.labelName ?? column.name,
+        price: configured?.price ?? 0,
+        quantity,
+      };
+    }
+    const fromSheet: Order = {
+      id: existing?.id ?? makeId(),
+      orderNumber: parsed.orderNumber,
+      orderDate: parsed.orderDate ?? localOrderDate(new Date(parsed.createdAt ?? now)),
+      customer: parsed.customer,
+      products,
+      paymentStatus: parsed.paymentStatus ?? 'Pending',
+      paymentMethod: parsed.paymentMethod ?? 'UPI',
+      transactionId: parsed.transactionId,
+      paymentAmount: parsed.paymentAmount,
+      orderStatus: parsed.orderStatus ?? 'New',
+      notes: parsed.notes,
+      customFields: parsed.custom,
+      deliveryCharge: parsed.deliveryCharge ?? 0,
+      totalAmount: parsed.totalFromFile ?? 0,
+      previousOrderNumber: parsed.previousOrderNumber || undefined,
+      previousSequenceOrderNumber: parsed.previousSequenceOrderNumber || undefined,
+      printed: parsed.labelStatus ?? 'Not Printed',
+      printedAt: parsed.printedAt,
+      createdAt: parsed.createdAt ?? now,
+      updatedAt: parsed.updatedAt ?? now,
+      spreadsheetRow: index + 1,
+      syncedAt: now,
+      pendingSync: false,
+    };
+    const merged: Order = existing ? {
+      ...existing,
+      ...fromSheet,
+      id: existing.id,
+      products: Object.keys(products).length ? products : existing.products,
+      customFields: { ...existing.customFields, ...parsed.custom },
+      // A blank historical Sheets cell must not erase a known local total.
+      totalAmount: parsed.totalFromFile ?? existing.totalAmount,
+    } : fromSheet;
+    const at = next.findIndex((order) => order.orderNumber.trim().toLowerCase() === key);
+    if (at >= 0) next[at] = merged;
+    else next.push(merged);
+  }
+  return next;
+}
+
 async function pwaSaveConnection(input: ConnectionSaveInput): Promise<SpreadsheetConnection | null> {
   const state = await storage.loadAll();
   const previous = state.settings.spreadsheet.connection;
   if (!previous) throw new Error('Google account is not connected.');
   const connection: SpreadsheetConnection = { ...previous, ...input, connectedAt: Date.now() };
-  await storage.set(LS.settings, {
+  const settings: Settings = {
     ...state.settings,
     spreadsheet: { ...state.settings.spreadsheet, connected: true, connection },
-  });
+  };
+  await storage.set(LS.settings, settings);
+  try {
+    const driver = new GoogleSheetsDriver(connection);
+    const grid = await driver.getGrid({ worksheetName: connection.worksheetName }, 5000);
+    await storage.set(LS.orders, mergePwaSheetOrders(grid, { ...state, settings }));
+  } catch (error) {
+    // Selecting a usable sheet must not fail because its history cannot be
+    // read right now. Existing local data and all offline queue behavior stay
+    // intact; the normal sync action can be retried when online.
+    console.warn('[pwa] unable to load existing Google Sheets orders:', error);
+  }
   return connection;
 }
 

@@ -12,6 +12,7 @@ import { defaultSettings } from '../src/lib/constants';
 import { createOrder, updateOrder } from '../src/services/orders';
 import { storage } from '../src/services/storage';
 import { buildLabelModel } from '../src/components/label/labelModel';
+import { mergePwaSheetOrders } from '../src/services/messaging';
 
 function order(over: Partial<Order>): Order {
   return {
@@ -80,6 +81,16 @@ describe('order date calendar model', () => {
     const updated = await updateOrder(created.order!.id, { ...input, orderDate: '2026-09-12' }, context);
     expect(updated.order?.id).toBe(created.order?.id);
     expect(updated.order?.orderDate).toBe('2026-09-12');
+  });
+
+  it('hydrates the PWA cache from the selected shared Google Orders sheet', () => {
+    const hydrated = mergePwaSheetOrders([
+      ['Order Number', 'Order Date', 'Customer Name', 'WhatsApp Number', 'Night Cream Qty', 'Delivery Charge', 'Total'],
+      ['15001', '10/09/2026', 'Patel', '6352808571', '2', '40', '1240'],
+    ], { settings: defaultSettings(), fields: [], products: [], orders: [], oldOrders: [], setupDone: true });
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]).toMatchObject({ orderNumber: '15001', orderDate: '2026-09-10', spreadsheetRow: 2, totalAmount: 1240 });
+    expect(Object.values(hydrated[0].products)[0]).toMatchObject({ productName: 'Night Cream', quantity: 2 });
   });
 
   it('does not silently replace a supplied invalid date with today', async () => {
