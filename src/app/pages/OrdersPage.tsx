@@ -245,7 +245,7 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
       const { bgSyncPendingOrders } = await import('../../services/messaging');
       const res = await bgSyncPendingOrders();
       await refreshConfig();
-      toast('success', `Sync finished — ${res.synced} order${res.synced === 1 ? '' : 's'} synced${res.failed ? `, ${res.failed} failed` : ''}.`);
+      toast('success', `Sync finished — ${res.synced} order${res.synced === 1 ? '' : 's'} synced${res.failed ? `, ${res.failed} failed` : ''}${res.loaded !== undefined ? ` · ${res.loaded} shared-sheet order${res.loaded === 1 ? '' : 's'} refreshed` : ''}.`);
       setPendingCount(res.remaining ?? 0);
     } catch (e) {
       toast('error', 'Sync failed', { message: e instanceof Error ? e.message : undefined });
@@ -284,8 +284,8 @@ export function OrdersPage({ go }: { go: (r: string, param?: string) => void }) 
           <Button variant="outline" icon={<IconUpload width={14} />} onClick={() => fullImportFileRef.current?.click()} disabled={xlBusy !== null} title="Restore orders + products from an orders-products .xlsx workbook">
             {xlBusy === 'import' ? <span className="spinner" /> : 'Import Orders + Products'}
           </Button>
-          {pendingCount > 0 && (
-            <Button variant="outline" icon={<IconRefresh width={14} />} onClick={() => void syncNow()} disabled={syncing}>
+          {(pendingCount > 0 || settings.spreadsheet.connected) && (
+            <Button variant="outline" icon={<IconRefresh width={14} />} onClick={() => void syncNow()} disabled={syncing} title="Sync pending orders; the PWA also refreshes orders from the selected Google Sheet">
               {syncing ? <span className="spinner" /> : 'Sync Now'}
             </Button>
           )}

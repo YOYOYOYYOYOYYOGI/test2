@@ -179,6 +179,17 @@ export function mergePwaSheetOrders(grid: string[][], state: Awaited<ReturnType<
   return next;
 }
 
+/** Refresh the PWA cache from the selected shared worksheet. This is a pull
+ * complement to the existing queued push sync, not a second persistence layer. */
+async function pwaRefreshOrdersFromSheet(): Promise<number> {
+  const state = await storage.loadAll();
+  const target = await pwaDriverFor();
+  const grid = await target.driver.getGrid({ worksheetName: target.worksheetName }, 5000);
+  const orders = mergePwaSheetOrders(grid, state);
+  await storage.set(LS.orders, orders);
+  return orders.filter((order) => Boolean(order.spreadsheetRow)).length;
+}
+
 async function pwaSaveConnection(input: ConnectionSaveInput): Promise<SpreadsheetConnection | null> {
   const state = await storage.loadAll();
   const previous = state.settings.spreadsheet.connection;
@@ -190,9 +201,7 @@ async function pwaSaveConnection(input: ConnectionSaveInput): Promise<Spreadshee
   };
   await storage.set(LS.settings, settings);
   try {
-    const driver = new GoogleSheetsDriver(connection);
-    const grid = await driver.getGrid({ worksheetName: connection.worksheetName }, 5000);
-    await storage.set(LS.orders, mergePwaSheetOrders(grid, { ...state, settings }));
+    await pwaRefreshOrdersFromSheet();
   } catch (error) {
     // Selecting a usable sheet must not fail because its history cannot be
     // read right now. Existing local data and all offline queue behavior stay
@@ -215,10 +224,12 @@ async function pwaRunSheetOp(op: SheetOp): Promise<unknown> {
   return { row: op.rowIndex };
 }
 
-async function pwaSyncPendingOrders(): Promise<{ synced: number; failed: number; remaining?: number }> {
+async function pwaSyncPendingOrders(): Promise<{ synced: number; failed: number; remaining?: number; loaded?: number }> {
   const { getPendingOps } = await import('./orders');
   const ops = await getPendingOps();
-  if (!ops.length) return { synced: 0, failed: 0, remaining: 0 };
+  // A PWA user may have no pending local work while the desktop extension has
+  // appended orders. Sync Now therefore refreshes shared Sheet data either way.
+  if (!ops.length) return { synced: 0, failed: 0, remaining: 0, loaded: await pwaRefreshOrdersFromSheet() };
   const target = await pwaDriverFor();
   const state = await storage.loadAll();
   const engine = new SpreadsheetEngine();
@@ -245,7 +256,7 @@ async function pwaSyncPendingOrders(): Promise<{ synced: number; failed: number;
     }
   }
   await storage.setMany({ [LS.orders]: state.orders, [LS.pendingOps]: remaining });
-  return { synced, failed, remaining: remaining.length };
+  return { synced, failed, remaining: remaining.length, loaded: await pwaRefreshOrdersFromSheet() };
 }
 
 
@@ -297,6 +308,6 @@ export async function bgRunSheetOp(op: SheetOp): Promise<unknown> {
   return inExtension() ? message({ type: 'SHEET_OP', payload: op }) : pwaRunSheetOp(op);
 }
 
-export async function bgSyncPendingOrders(): Promise<{ synced: number; failed: number; remaining?: number }> {
+export async function bgSyncPendingOrders(): Promise<{ synced: number; failed: number; remaining?: number; loaded?: number }> {
   return inExtension() ? message({ type: 'SYNC_PENDING_ORDERS' }) : pwaSyncPendingOrders();
 }

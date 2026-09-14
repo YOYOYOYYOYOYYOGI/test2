@@ -715,7 +715,8 @@ function BackupTab({ go }: { go: (r: string) => void }) {
     setBusy(true);
     try {
       const res = await bgSyncPendingOrders();
-      toast('success', `Sync complete: ${res.synced} synced${res.failed ? `, ${res.failed} still pending` : ''}`);
+      await store.refreshConfig();
+      toast('success', `Sync complete: ${res.synced} synced${res.failed ? `, ${res.failed} still pending` : ''}${res.loaded !== undefined ? ` · ${res.loaded} shared-sheet orders refreshed` : ''}`);
     } catch (e) {
       toast('error', 'Sync failed', { message: e instanceof Error ? e.message : undefined });
     } finally { setBusy(false); }
@@ -801,9 +802,9 @@ function BackupTab({ go }: { go: (r: string) => void }) {
         <div className="card-pad col" style={{ gap: 8 }}>
           <div className="row" style={{ gap: 10 }}>
             <Badge color={settings.demoMode ? 'amber' : settings.spreadsheet.connected ? 'green' : 'red'}>{settings.demoMode ? 'Demo' : settings.spreadsheet.connected ? 'Google Sheets connected' : 'Local only'}</Badge>
-            <Button size="sm" variant="outline" onClick={() => void syncNow()} disabled={busy}>{busy ? <span className="spinner" /> : 'Sync pending orders now'}</Button>
+            <Button size="sm" variant="outline" onClick={() => void syncNow()} disabled={busy}>{busy ? <span className="spinner" /> : 'Sync Google Sheets now'}</Button>
           </div>
-          <p className="hint">Pending offline orders sync automatically when the extension starts and when the connection returns.</p>
+          <p className="hint">Pending offline orders sync automatically when the extension starts and when the connection returns. In the PWA, Sync Google Sheets also refreshes the local order cache from the selected shared worksheet.</p>
         </div>
       </Card>
       <Card title="Reset" actions={<Button size="sm" variant="danger" onClick={() => setConfirmReset(true)}>Reset everything</Button>}>
