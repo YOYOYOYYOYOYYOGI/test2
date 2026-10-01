@@ -1,0 +1,33 @@
+Phase,Order,Ingredient,INCI,Function,Percent,Grams_for_100g,Add_at_temp_C,Actual_weighed_g,Supplier,Lot_number,Notes
+A,1,Distilled water,Aqua,Solvent / continuous phase,65.25,65.25,Room then heat to 70-75,,,,Use distilled or DM water only
+A,2,Disodium EDTA,Disodium EDTA,Chelator / preservative booster,0.10,0.10,Room,,,,Dissolve first; dust mask
+A,3,Glycerin,Glycerin,Humectant,4.00,4.00,Room,,,,Use as carrier for xanthan slurry
+A,4,Xanthan gum,Xanthan Gum,Rheology modifier / stabiliser,0.20,0.20,Room,,,,Pre-disperse in glycerin - never straight into water
+A,5,Niacinamide,Niacinamide,Brightening / barrier / sebum / anti-inflammatory,4.00,4.00,Room,,,,Dissolves easily; dust mask
+A,6,Allantoin,Allantoin,Soothing / smoothing,0.20,0.20,Room,,,,Below 0.5% water solubility ceiling
+A,7,HEAT PHASE A,,,,,70-75,,,,Hold 15-20 min; note beaker weight for evaporation top-up
+B,8,Olivem 1000,"Cetearyl Olivate, Sorbitan Olivate",Primary emulsifier,4.00,4.00,70-75,,,,Melt completely - no flakes left
+B,9,Cetearyl alcohol,Cetearyl Alcohol,Co-emulsifier / consistency,0.50,0.50,70-75,,,,
+B,10,Caprylic/capric triglyceride,Caprylic/Capric Triglyceride,Light emollient,4.00,4.00,70-75,,,,
+B,11,Squalane,Squalane,Emollient / barrier lipid,2.00,2.00,70-75,,,,Squalane not squalene
+B,12,Tocopherol,Tocopherol,Oil-phase antioxidant,0.20,0.20,70-75,,,,Add last in Phase B. NOT a preservative
+X,13,EMULSIFY: pour B into A,,,,,70-75 both within 5C,,,,High shear 2-3 min submerged; then stir while cooling
+C,14,Distilled water (reserved),Aqua,Solvent for cool-down actives,10.00,10.00,Room,,,,Pre-hydrate SH in this 30 min ahead
+C,15,Sodium hyaluronate,Sodium Hyaluronate,Humectant / film former,0.10,0.10,<=45,,,,Hydrate cold in the reserved water
+C,16,Alpha-arbutin,Alpha-Arbutin,Brightening (tyrosinase inhibitor),1.50,1.50,<=45,,,,NEVER above 40-45 C. Keep dark. COA must state hydroquinone content
+C,17,Zinc PCA,Zinc PCA,Sebum support / NMF humectant,0.50,0.50,<=45,,,,Hygroscopic - reseal immediately
+C,18,D-Panthenol 75%,Panthenol,Humectant / soothing / barrier,2.00,2.00,<=40,,,,Viscous - warm bottle slightly
+C,19,PE 9010 preservative,"Phenoxyethanol, Ethylhexylglycerin",Broad-spectrum preservative,1.00,1.00,<=40,,,,Stir a full 2 minutes. DO NOT OMIT OR REDUCE
+C,20,Fragrance (IFRA cert.),Parfum,Sensory,0.15,0.15,<=35,,,,Omit for fragrance-free version and add 0.15 g water
+D,21,Lactic acid 10% solution,"Lactic Acid, Aqua",pH adjuster (down),0.30,0.30,<=35,,,,q.s. - add 2-3 drops at a time to reach pH 5.0-5.5
+,,TOTAL,,,100.00,100.00,,,,,
+,,,,,,,,,,,
+,,BATCH RECORD,,,,,,,,,
+,,Batch code,,,,,,,,,
+,,Date made,,,,,,,,,
+,,Final pH (method: direct / 1:10 dilution),,,,,,,,,
+,,Final appearance,,,,,,,,,
+,,Final odour,,,,,,,,,
+,,Yield (g),,,,,,,,,
+,,Packaging used,,,,,,,,,
+,,Use-by date (max 6-8 weeks),,,,,,,,,
