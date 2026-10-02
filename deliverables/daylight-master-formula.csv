@@ -1,0 +1,20 @@
+Ingredient,INCI,Percent,Grams per 100g,Phase,Purpose
+Distilled / deionised water,Aqua,65.25,65.25,A,Solvent / continuous phase
+Disodium EDTA,Disodium EDTA,0.10,0.10,A,Chelator
+"Glycerin, vegetable IP/USP",Glycerin,4.00,4.00,A,Humectant
+"Xanthan gum, clear grade",Xanthan Gum,0.20,0.20,A,Rheology / stabiliser
+Niacinamide,Niacinamide,4.00,4.00,A,"Barrier, tone and sebum support"
+Allantoin,Allantoin,0.20,0.20,A,Soothing / smoothing
+Cetearyl olivate & sorbitan olivate (Olivem 1000),"Cetearyl Olivate, Sorbitan Olivate",4.00,4.00,B,Primary O/W emulsifier
+Cetearyl alcohol,Cetearyl Alcohol,0.50,0.50,B,Co-emulsifier / body
+Caprylic/capric triglyceride,Caprylic/Capric Triglyceride,4.00,4.00,B,Light emollient
+"Squalane, olive or sugarcane",Squalane,2.00,2.00,B,Light emollient / barrier lipid
+"Tocopherol, mixed",Tocopherol,0.20,0.20,B,Oil antioxidant
+Reserved distilled / deionised water,Aqua,10.00,10.00,C,Cool-down solvent
+"Sodium hyaluronate, cosmetic grade",Sodium Hyaluronate,0.10,0.10,C,Humectant / film former
+"Alpha-arbutin, >=99% with COA",Alpha-Arbutin,1.50,1.50,C,Tone-evening active
+"Zinc PCA, cosmetic grade",Zinc PCA,0.50,0.50,C,Sebum / NMF support
+D-panthenol 75% liquid,Panthenol,2.00,2.00,C,Humectant / soothing
+Phenoxyethanol & ethylhexylglycerin (PE 9010 type),"Phenoxyethanol, Ethylhexylglycerin",1.00,1.00,C,Broad-spectrum preservative
+IFRA-certified facial fragrance,Parfum,0.15,0.15,C,Sensory
+"10% lactic acid solution, q.s.","Lactic Acid, Aqua",0.30,0.30,D,pH adjustment
