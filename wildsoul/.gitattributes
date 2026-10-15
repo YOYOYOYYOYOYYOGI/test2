@@ -1,0 +1,2 @@
+# Keep a clean Git index while Windows receives a native batch script.
+android/gradlew.bat text eol=crlf

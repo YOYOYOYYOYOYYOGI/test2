@@ -1,0 +1,5 @@
+All 3D models, terrain, vector art, graphics and synthesized music were authored for Vesperglen.
+Feature graphic: composited from store/world-art.png (an actual headless Chromium capture of the playable game) plus original vector lettering.
+Browser screenshots (including cave-exploration.png): real headless Chromium captures from physical in-game navigation, not captures of an Android device. Re-capture on supported hardware before Play submission.
+Fonts: Inter and Cormorant Garamond via @fontsource, SIL Open Font License 1.1; see dependencies' LICENSE files.
+Three.js, Vite and Capacitor under their respective open-source licenses; see package-lock.json.

@@ -1,0 +1,40 @@
+{
+  "name": "vesperglen-vertical-slice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vesperglen: an original offline 3D creature adventure, playable in the browser",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "android:add": "npm run build && npx cap add android",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:open": "npx cap open android",
+    "assets:store": "node scripts/make-assets.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:adventure": "node scripts/adventure-e2e.mjs",
+    "test:cave": "node scripts/explore-cave-e2e.mjs",
+    "format": "prettier --write \"src/**/*.{ts,css}\" \"tests/**/*.ts\" \"scripts/*.mjs\" vite.config.ts capacitor.config.ts"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "@sparticuz/chromium": "^153.0.0",
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.64.1",
+    "prettier": "^3.9.10",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.1"
+  }
+}

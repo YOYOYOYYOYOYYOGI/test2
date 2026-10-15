@@ -1,5 +1,7 @@
 # Order Label Manager — Chrome Extension + Mobile PWA
 
+> **New, separate game subproject:** [Vesperglen · The First Light](wildsoul/README.md) is an original, playable Three.js creature-adventure vertical slice with its own source, tests, Android scaffold and browser build. The order manager below remains unchanged.
+
 A responsive **Chrome extension (Manifest V3)** and installable **mobile web app/PWA** for small businesses that receive orders on WhatsApp. Enter a customer order once and the extension:
 
 1. validates the order (phone, pincode, required fields, duplicates),
