@@ -158,7 +158,7 @@ export function OldDataTab() {
             <b>How it works</b><br />
             • Imported records are stored separately — they are <b>never</b> counted in the dashboard, today's sales or Excel exports.<br />
             • On the <b>New Order</b> page, typing a WhatsApp <b>or Mobile</b> number instantly finds that customer's previous orders — imported history <b>and</b> newer orders created from it (the order chain).<br />
-            • Choosing one autofills Name / WhatsApp / Mobile / Address / other fields (everything stays editable) and loads its <b>complete</b> order number into the Order Number field as a starting point — you type the new number before it, e.g. <span className="mono">15000-14030-11694-9602-4776</span>, and the chain continues exactly once (next time <span className="mono">15001-15000-14030-11694-9602-4776</span>). Order numbers are always manual — nothing is generated automatically.<br />
+            • Choosing one autofills Name / WhatsApp / Mobile / Address / other fields (everything stays editable). In <b>Manual</b> Order Number Mode it also loads the complete order number into the editable field as a starting point — you type the new number before it, e.g. <span className="mono">15000-14030-11694-9602-4776</span>. In <b>Automatic</b> mode, the saved order uses the global Next Order Number plus this customer's latest complete order number; the imported order itself is never changed.<br />
             • WhatsApp &amp; order numbers are always stored as text — scientific notation (<span className="mono">8.347034843E9</span>) and <span className="mono">.0</span> suffixes are cleaned automatically.
           </div>
         </div>

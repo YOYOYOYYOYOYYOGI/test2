@@ -133,8 +133,10 @@ export function defaultSettings(): Settings {
       connection: null,
     },
     order: {
-      // Manual order numbers only — the user types every order number. No
-      // auto generator, counter, prefix, padding or start-number settings.
+      // Existing installations remain manual until the owner explicitly
+      // enables Automatic mode in Settings → Order Numbers.
+      numberMode: 'manual',
+      nextOrderNumber: '1',
       defaultPaymentStatus: 'Pending',
       defaultOrderStatus: 'New',
     },

@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
 // Order service — local order store (chrome.storage) + spreadsheet write
 // ---------------------------------------------------------------------------
-import type { Order, OrderField, Product, Settings } from '../types';
+import type { CustomerData, OldOrderRecord, Order, OrderField, Product, Settings } from '../types';
 import { makeId } from '../lib/constants';
 import { computeTotal } from '../lib/format';
 import { localOrderDate, parseOrderDate } from '../lib/orderDate';
 import { LS, storage } from './storage';
+import { normalizeOrderNumber, normalizePhone } from '../lib/normalizePhone';
 import { engineForSettings } from './sync';
 import { SpreadsheetEngine, SpreadsheetError, friendlySheetsError } from './spreadsheet/engine';
 import { GoogleAuthError } from './google/oauth';
@@ -115,6 +116,114 @@ export function previousSequenceOrderFor(orderNumber: string, orders: Order[]): 
   return best?.text ?? '';
 }
 
+// ---------------------------------------------------------------------------
+// Automatic order numbers
+// ---------------------------------------------------------------------------
+
+const AUTOMATIC_NUMBER_RE = /^\d+$/;
+
+/** A Next Order Number is deliberately text, so large values and leading
+ * zeroes never become scientific notation or a rounded JavaScript number. */
+export function isAutomaticBaseNumber(value: string | null | undefined): boolean {
+  return AUTOMATIC_NUMBER_RE.test(String(value ?? '').trim());
+}
+
+export function incrementAutomaticBaseNumber(value: string): string {
+  const raw = String(value).trim();
+  if (!isAutomaticBaseNumber(raw)) throw new Error('Next Order Number must contain digits only.');
+  const next = (BigInt(raw) + 1n).toString();
+  // Preserve intentionally entered padding: 0015000 → 0015001.
+  return next.length < raw.length ? next.padStart(raw.length, '0') : next;
+}
+
+function customerPhones(customer: Pick<CustomerData, 'whatsapp' | 'mobile'>): Set<string> {
+  const phones = new Set<string>();
+  for (const raw of [customer.whatsapp, customer.mobile]) {
+    const normalized = normalizePhone(raw ?? '');
+    if (normalized.length >= 10) phones.add(normalized);
+  }
+  return phones;
+}
+
+function sharesCustomerPhone(
+  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
+  candidate: Pick<CustomerData | OldOrderRecord, 'whatsapp' | 'mobile'>,
+): boolean {
+  const target = customerPhones(customer);
+  if (!target.size) return false;
+  for (const raw of [candidate.whatsapp, candidate.mobile]) {
+    const normalized = normalizePhone(raw ?? '');
+    if (target.has(normalized)) return true;
+  }
+  return false;
+}
+
+/**
+ * Find the immediate full customer-history parent for an automatically created
+ * order. Current orders win because they are the newest live history; imported
+ * old records supply the parent only until the customer has a new app order.
+ */
+export function latestCustomerOrderNumber(
+  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
+  orders: Order[],
+  oldOrders: OldOrderRecord[],
+): string {
+  const current = orders
+    .filter((order) => sharesCustomerPhone(customer, order.customer))
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+  if (current) return normalizeOrderNumber(current.orderNumber);
+
+  const historic = oldOrders
+    .filter((record) => sharesCustomerPhone(customer, record))
+    .sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0) || (b.sourceRow ?? 0) - (a.sourceRow ?? 0))[0];
+  return historic ? normalizeOrderNumber(historic.orderNumber) : '';
+}
+
+export interface AutomaticOrderNumber {
+  baseNumber: string;
+  orderNumber: string;
+  previousOrderNumber?: string;
+}
+
+/** Build an automatic final number without reserving or incrementing anything. */
+export function automaticOrderNumberFor(
+  nextOrderNumber: string,
+  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
+  orders: Order[],
+  oldOrders: OldOrderRecord[],
+): AutomaticOrderNumber {
+  const baseNumber = String(nextOrderNumber ?? '').trim();
+  if (!isAutomaticBaseNumber(baseNumber)) throw new Error('Set Next Order Number to digits only before saving an automatic order.');
+  const previousOrderNumber = latestCustomerOrderNumber(customer, orders, oldOrders);
+  return {
+    baseNumber,
+    orderNumber: previousOrderNumber ? `${baseNumber}-${previousOrderNumber}` : baseNumber,
+    previousOrderNumber: previousOrderNumber || undefined,
+  };
+}
+
+/** Serializes automatic creations inside this app context. The final duplicate
+ * check still reads storage inside the lock, so a stale form preview cannot
+ * reuse a number after another save. */
+let automaticCreateTail: Promise<void> = Promise.resolve();
+async function inAutomaticCreateLock<T>(work: () => Promise<T>): Promise<T> {
+  // Web Locks coordinates the extension tab, popup and PWA tabs. The promise
+  // tail keeps the same guarantee in test/older environments without it.
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks?.request) {
+    return locks.request('order-label-manager:automatic-order-create', { mode: 'exclusive' }, async () => work());
+  }
+  const before = automaticCreateTail;
+  let release!: () => void;
+  automaticCreateTail = new Promise<void>((resolve) => { release = resolve; });
+  await before;
+  try {
+    return await work();
+  } finally {
+    release();
+  }
+}
+
 function newOrderObject(input: OrderInput, ctx: OrderCtx, opts: { id?: string; now?: number } = {}): Order {
   const now = opts.now ?? Date.now();
   // Programmatic/legacy callers which omit the field retain the new-order
@@ -184,14 +293,79 @@ export async function createOrder(
   ctx: OrderCtx,
   opts: { force?: boolean; skipSheet?: boolean } = {},
 ): Promise<CreateOutcome> {
-  const existing = await getOrderByNumber(input.orderNumber);
-  if (existing && !opts.force) {
-    return { ok: false, duplicate: { existing } };
+  // Settings may have changed in another open app window after this form was
+  // rendered. Read them again before deciding whether this is automatic.
+  const live = await storage.loadAll();
+  if (live.settings.order.numberMode === 'automatic') {
+    return inAutomaticCreateLock(() => createOrderInner(input, { ...ctx, settings: live.settings }, opts, true));
   }
-  const order = newOrderObject(input, ctx);
+  return createOrderInner(input, ctx, opts, false);
+}
+
+async function createOrderInner(
+  input: OrderInput,
+  ctx: OrderCtx,
+  opts: { force?: boolean; skipSheet?: boolean },
+  automatic: boolean,
+): Promise<CreateOutcome> {
+  let finalInput = input;
+  let automaticSourceNext: string | null = null;
+
+  if (automatic) {
+    // Re-read inside the queue. This is the authoritative final number, not
+    // merely the preview shown in the New Order form.
+    const state = await storage.loadAll();
+    if (state.settings.order.numberMode !== 'automatic') {
+      return createOrderInner(input, { ...ctx, settings: state.settings }, opts, false);
+    }
+    const generated = automaticOrderNumberFor(
+      state.settings.order.nextOrderNumber,
+      input.customer,
+      state.orders,
+      state.oldOrders,
+    );
+    automaticSourceNext = generated.baseNumber;
+    finalInput = {
+      ...input,
+      orderNumber: generated.orderNumber,
+      previousOrderNumber: generated.previousOrderNumber,
+      // The sequence reference is the independent global base number only;
+      // it is never appended to the customer-history chain.
+      previousSequenceOrderNumber: previousSequenceOrderFor(generated.baseNumber, state.orders) || undefined,
+    };
+    ctx = { ...ctx, settings: state.settings, fields: state.fields, products: state.products };
+  }
+
+  const existing = await getOrderByNumber(finalInput.orderNumber);
+  // Exact number duplicates are never allowed for automatic orders, even if a
+  // caller used force for a separate matching-rule confirmation.
+  if (existing && (!opts.force || automatic)) {
+    return { ok: false, duplicate: { existing }, error: 'This order number already exists. Change Next Order Number and try again.' };
+  }
+  const order = newOrderObject(finalInput, ctx);
   const orders = await getAllOrders();
+  // A last storage read is the final guard against two near-simultaneous saves.
+  const raced = orders.find((item) => item.orderNumber.trim().toLowerCase() === order.orderNumber.trim().toLowerCase());
+  if (raced && (!opts.force || automatic)) {
+    return { ok: false, duplicate: { existing: raced }, error: 'This order number was just saved by another order. Please try again.' };
+  }
   orders.push(order);
   await persistOrders(orders);
+
+  if (automatic && automaticSourceNext) {
+    // Increment only after the order exists in durable local storage. If the
+    // owner changed the setting while saving, honour their newer choice.
+    const latest = await storage.loadAll();
+    if (
+      latest.settings.order.numberMode === 'automatic'
+      && latest.settings.order.nextOrderNumber.trim() === automaticSourceNext
+    ) {
+      await storage.set(LS.settings, {
+        ...latest.settings,
+        order: { ...latest.settings.order, nextOrderNumber: incrementAutomaticBaseNumber(automaticSourceNext) },
+      });
+    }
+  }
 
   if (opts.skipSheet) {
     return { ok: true, order, synced: false };

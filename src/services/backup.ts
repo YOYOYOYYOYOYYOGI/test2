@@ -7,8 +7,9 @@
 //   imported historical old data, products, field configuration, delivery
 //   rules, matching rules and every other setting (label design incl. the
 //   logo data URL, business info, spreadsheet column mappings …). Order
-//   numbers are fully manual — each saved order keeps its own final number,
-//   previous-order chain and previous-sequence reference in its row.
+//   number mode and its text Next Order Number are preserved exactly, as are
+//   every saved order's final number, customer-history parent and independent
+//   previous-sequence reference.
 //
 // The file is versioned (backupVersion: 1) so future versions can migrate
 // older backups. Restore REPLACES the current local data with the backup
@@ -103,9 +104,8 @@ export function parseBackupFile(text: string): ParseResult | ParseFailure {
     return { ok: false, message: 'Invalid backup file. Please select a valid Order Manager backup.' };
   }
   const oldOrders = Array.isArray(d.oldOrders) ? d.oldOrders : [];
-  // legacy v1 files may carry nextOrderNumber / order.startNumber (auto
-  // counters) — ignored, order numbers are manual now and each order row
-  // stores its own numbers
+  // Legacy backups lack the mode/counter fields. storage.loadAll() merges
+  // defaults on the next load, preserving the established Manual behavior.
   const data: BackupData = {
     settings: d.settings as Settings,
     fields: d.fields as OrderField[],

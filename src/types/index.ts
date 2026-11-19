@@ -295,8 +295,11 @@ export interface Settings {
     headers?: Record<string, number>;
   };
   order: {
-    /** order numbers are always typed manually by the user — there is no
-     *  automatic generator, counter, prefix or start number */
+    /** Manual preserves the existing editable-number workflow. Automatic
+     * reserves a global sequential base only after a new order is saved. */
+    numberMode: 'automatic' | 'manual';
+    /** Plain digit text (not a JavaScript number) used by Automatic mode. */
+    nextOrderNumber: string;
     defaultPaymentStatus: PaymentStatusValue;
     defaultOrderStatus: OrderStatusValue;
   };

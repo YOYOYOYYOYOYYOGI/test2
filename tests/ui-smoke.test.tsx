@@ -93,7 +93,7 @@ describe('app boot + wizard (demo)', () => {
     await setInput('Customer name', 'E2E Customer');
     await setInput('9876543210', '9876500000');
     await setInput('House no., street, landmark…', '221B Baker Street, MG Road');
-    // order numbers are fully manual — type the complete number
+    // default Manual mode — type the complete number
     await setInput('e.g. 15000', '16001');
     await act(async () => {
       const pill = Array.from(el.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Night Cream'));

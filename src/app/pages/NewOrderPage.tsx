@@ -10,7 +10,7 @@ import { IconPlus, IconTrash, IconPrinter, IconX } from '../../components/icons'
 import { validatePincode, validatePhone, validateEmail } from '../../lib/format';
 import { isOrderDate, localOrderDate, orderDateOf } from '../../lib/orderDate';
 import { COMPUTED_FIELD_KEYS } from '../../services/config';
-import { isSimpleOrderNumber, previousSequenceOrderFor } from '../../services/orders';
+import { automaticOrderNumberFor, isSimpleOrderNumber, previousSequenceOrderFor } from '../../services/orders';
 import { normalizeOrderNumber, normalizePhone, phoneSearchable } from '../../lib/normalizePhone';
 import { deliveryChargeFor, hasDeliverySettings } from '../../lib/delivery';
 import { scanMatches, type MatchHit } from '../../lib/matching';
@@ -49,7 +49,7 @@ function emptyForm(settings: Settings, fields: OrderField[]): FormState {
     if (String(field.key) === 'custom') custom[field.id] = '';
   }
   return {
-    orderNumber: '',
+    orderNumber: settings.order.numberMode === 'automatic' ? settings.order.nextOrderNumber : '',
     orderDate: localOrderDate(),
     customer: { name: '', whatsapp: '', mobile: '', address: '', city: '', state: '', pincode: '' },
     selected: [],
@@ -120,6 +120,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
 
   const editing = useMemo(() => orders.find((o) => o.id === editId), [orders, editId]);
   const isNewFlow = !editId; // old-order lookup only on the New Order screen
+  const automaticMode = isNewFlow && settings.order.numberMode === 'automatic';
   const [form, setForm] = useState<FormState>(() => (editing ? orderToForm(editing, settings) : emptyForm(settings, fields)));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -154,12 +155,29 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     }, 0);
   };
 
-  // Previous Sequence Order — informational only. Debounced lookup over the
-  // existing orders: the latest existing SIMPLE numeric order number below
-  // the typed number. Never touches the order number itself.
+  // Automatic mode previews the current global base plus this customer's
+  // latest full history. The service recomputes the same value at save time.
+  const automaticPreview = useMemo(() => {
+    if (!automaticMode) return null;
+    try {
+      return automaticOrderNumberFor(settings.order.nextOrderNumber, form.customer, orders, oldOrders);
+    } catch {
+      return null;
+    }
+  }, [automaticMode, settings.order.nextOrderNumber, form.customer.whatsapp, form.customer.mobile, orders, oldOrders]);
+
+  useEffect(() => {
+    if (!automaticMode || !automaticPreview) return;
+    setForm((current) => current.orderNumber === automaticPreview.orderNumber
+      ? current
+      : { ...current, orderNumber: automaticPreview.orderNumber });
+  }, [automaticMode, automaticPreview?.orderNumber]);
+
+  // Previous Sequence Order stays an independent reference. For automatic
+  // chains, compare the global base (15000), never the chained final text.
   useEffect(() => {
     const t = window.setTimeout(() => {
-      const n = form.orderNumber.trim();
+      const n = automaticMode ? (automaticPreview?.baseNumber ?? '') : form.orderNumber.trim();
       if (!n) {
         setPrevSeq('');
         return;
@@ -167,8 +185,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
       setPrevSeq(previousSequenceOrderFor(n, orders));
     }, 250);
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.orderNumber]);
+  }, [automaticMode, automaticPreview?.baseNumber, form.orderNumber, orders]);
 
   /** Autofill the form from a previous-order entry (imported history OR a
    *  current order in the chain): customer details are copied and the FULL
@@ -228,10 +245,14 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     // the complete previous order number is loaded into the editable field —
     // the user edits the beginning to add their new number (15000-…)
     const number = normalizeOrderNumber(entry.orderNumber) || entry.orderNumber;
-    setSelectedPrev({ orderNumber: number, name: entry.name || '', address: entry.address || '' });
-    setForm((prev) => ({ ...prev, ...patch, customer: cust, custom, orderNumber: number }));
+    // Only Manual mode has a selected previous-order relationship. Automatic
+    // mode uses the copied phone details to find its own latest full history.
+    setSelectedPrev(automaticMode ? null : { orderNumber: number, name: entry.name || '', address: entry.address || '' });
+    // Manual mode retains the established editable starting-number workflow.
+    // Automatic mode never copies an old number into its counter.
+    setForm((prev) => ({ ...prev, ...patch, customer: cust, custom, orderNumber: automaticMode ? prev.orderNumber : number }));
     setErrors({});
-    focusOrderNumberStart();
+    if (!automaticMode) focusOrderNumberStart();
   };
 
   /** Clear the customer previous-order relationship AND empty the editable
@@ -239,8 +260,8 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
    *  no automatic number). Customer details stay as typed. */
   const removePrevious = () => {
     setSelectedPrev(null);
-    setForm((f) => ({ ...f, orderNumber: '' }));
-    focusOrderNumberStart();
+    if (!automaticMode) setForm((f) => ({ ...f, orderNumber: '' }));
+    if (!automaticMode) focusOrderNumberStart();
   };
 
   /** Drop the current selection so another previous order can be picked; the
@@ -248,7 +269,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
    *  never kept. */
   const changePrevious = () => {
     setSelectedPrev(null);
-    setForm((f) => ({ ...f, orderNumber: '' }));
+    if (!automaticMode) setForm((f) => ({ ...f, orderNumber: '' }));
   };
 
   // "duplicate order" prefill (#/new?dupe=<id>)
@@ -301,13 +322,17 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     const reqField = (key: string) => byKey.get(key);
-    // Order Number: required, manual, stored as text. Duplicate check runs on
-    // the COMPLETE final number before anything is saved.
-    const on = form.orderNumber.trim();
+    // Manual mode validates what the user entered. Automatic mode validates
+    // the preview, then the service rechecks/regenerates it under its save lock.
+    const on = (automaticMode ? automaticPreview?.orderNumber : form.orderNumber)?.trim() ?? '';
     if (!on) {
-      errs.orderNumber = 'Please enter an order number.';
+      errs.orderNumber = automaticMode
+        ? 'Set a valid Next Order Number in Settings → Order Numbers.'
+        : 'Please enter an order number.';
     } else if (orders.some((o) => o.id !== editing?.id && o.orderNumber.trim().toLowerCase() === on.toLowerCase())) {
-      errs.orderNumber = 'This order number already exists. Please enter a different order number.';
+      errs.orderNumber = automaticMode
+        ? 'This automatic order number already exists. Change Next Order Number in Settings.'
+        : 'This order number already exists. Please enter a different order number.';
     }
     if (!isOrderDate(form.orderDate)) errs.orderDate = 'Please choose a valid order date.';
     const requiredKeys = ['customerName', 'customerWhatsapp', 'customerAddress'];
@@ -380,7 +405,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
       const customValues: Record<string, string | boolean> = {};
       for (const [k, v] of Object.entries(form.custom)) if (String(v) !== '') customValues[k] = v;
       const input = {
-        orderNumber: form.orderNumber.trim(),
+        orderNumber: (automaticMode ? automaticPreview?.orderNumber ?? '' : form.orderNumber).trim(),
         orderDate: form.orderDate,
         customer: { ...form.customer },
         products: productsRecord,
@@ -393,7 +418,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
         customFields: customValues,
         deliveryCharge: total.delivery,
         previousOrderNumber: selectedPrev?.orderNumber || undefined,
-        previousSequenceOrderNumber: previousSequenceOrderFor(form.orderNumber.trim(), orders) || undefined,
+        previousSequenceOrderNumber: previousSequenceOrderFor(automaticMode ? (automaticPreview?.baseNumber ?? '') : form.orderNumber.trim(), orders) || undefined,
       };
       const svc = await import('../../services/orders');
       if (editing) {
@@ -535,7 +560,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
               {orderNoField && (
                 <>
                   <label htmlFor="order-number">Order Number{orderNoField.required && <span className="req">*</span>}</label>
-                  {selectedPrev && (
+                  {!automaticMode && selectedPrev && (
                     <div style={{
                       marginBottom: 8, border: '1px solid var(--primary-border, var(--border-strong))', borderRadius: 9,
                       background: 'var(--primary-soft)', padding: '8px 12px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center',
@@ -558,29 +583,33 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                     id="order-number"
                     value={form.orderNumber}
                     invalid={Boolean(errors.orderNumber)}
+                    disabled={automaticMode}
                     onChange={(e) => set({ orderNumber: e.target.value })}
                     style={{ maxWidth: 420 }}
-                    placeholder={selectedPrev ? selectedPrev.orderNumber : 'e.g. 15000'}
+                    placeholder={automaticMode ? 'Generated automatically' : selectedPrev ? selectedPrev.orderNumber : 'e.g. 15000'}
                     autoComplete="off"
                     spellCheck={false}
                   />
                   {errors.orderNumber && <span className="error-text">{errors.orderNumber}</span>}
                   <div className="hint" style={{ marginTop: 4, lineHeight: 1.5 }}>
-                    {selectedPrev ? (
-                      <>
-                        This starts from the selected previous order — <b>edit the beginning</b> to add your new order number (e.g. <span className="mono">15000-{selectedPrev.orderNumber}</span>).
-                      </>
+                    {automaticMode ? (
+                      automaticPreview?.previousOrderNumber
+                        ? <>Generated from Next Order Number plus this customer's latest complete order: <span className="mono">{automaticPreview.orderNumber}</span>.</>
+                        : <>Generated from Next Order Number: <span className="mono">{automaticPreview?.orderNumber ?? 'Set a valid Next Order Number'}</span>.</>
+                    ) : selectedPrev ? (
+                      <>This starts from the selected previous order — <b>edit the beginning</b> to add your new order number (e.g. <span className="mono">15000-{selectedPrev.orderNumber}</span>).</>
                     ) : (
                       'Type the complete order number manually — nothing is generated automatically.'
                     )}
                   </div>
                   {(() => {
-                    if (!isSimpleOrderNumber(form.orderNumber.trim())) return null;
+                    const sequenceBase = automaticMode ? automaticPreview?.baseNumber ?? '' : form.orderNumber.trim();
+                    if (!isSimpleOrderNumber(sequenceBase)) return null;
                     return (
                       <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--muted)' }}>
                         Previous Sequence Order:{' '}
                         <b style={{ color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}>{prevSeq || 'None'}</b>
-                        <span className="small" style={{ marginLeft: 6 }}>— latest existing order before {form.orderNumber.trim()} (reference only, never added to the order number)</span>
+                        <span className="small" style={{ marginLeft: 6 }}>— latest existing simple order before {sequenceBase} (reference only, never added to the order number)</span>
                       </div>
                     );
                   })()}

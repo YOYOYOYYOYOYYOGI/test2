@@ -26,6 +26,8 @@ export const LS = {
   fields: 'olm.fields',
   products: 'olm.products',
   orders: 'olm.orders',
+  /** Legacy standalone counter key. It is never read; automatic numbering
+   * is persisted solely in settings.order.nextOrderNumber. */
   nextOrderNumber: 'olm.nextOrderNumber',
   /** queue of spreadsheet operations performed offline (for sync) */
   pendingOps: 'olm.pendingOps',

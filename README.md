@@ -107,7 +107,7 @@ scripts/          make-icons, postbuild, package (zip)
 
 ```bash
 npm run build      # typecheck + Vite UI build + background build + PWA precache
-npm run zip        # build + zip → release/order-label-manager-v1.0.10.zip
+npm run zip        # build + zip → release/order-label-manager-v1.0.11.zip
 # npm run package  # package the already-built dist/ folder
 ```
 
@@ -125,7 +125,7 @@ dist/
 ```
 
 Load `dist/` in Chrome as described above. A ready-to-share ZIP is written to
-`release/order-label-manager-v1.0.10.zip` and copied to the repository root.
+`release/order-label-manager-v1.0.11.zip` and copied to the repository root.
 
 ---
 
@@ -279,16 +279,18 @@ After enabling products Night Cream & Face Serum + saving orders:
   exists shows *“Matching <Field> found — TXN… already exists in Order
   ORD-1001”* with **View Existing Order** / **Continue Anyway** (duplicates
   are never created silently)
-- **Manual order numbers only** — the extension never generates, prefixes,
-  increments or reserves an order number. The New Order screen has one plain
-  editable **Order Number** field (opens blank): type the complete number
-  (`15000`) and it is saved exactly as typed; an exact repeat of an existing
-  number is blocked. When the typed number is a plain digit sequence, an
-  informational read-only **Previous Sequence Order** hint shows the latest
-  existing plain-digit number below it (`14999` for `15000`, skipping gaps,
-  or `None`) — recomputed live as you type, never added to the number, never
-  saved, never reserved. Chain numbers (`15000-14030-11694-9602-4776`) are
-  never interpreted as sequence numbers
+- **Order Number Mode — Manual or Automatic**: Manual keeps the existing
+  fully editable complete-number workflow (`15000` or
+  `15000-14030-11694-9602-4776`), including loading a chosen prior order's
+  full number as the starting value; nothing changes it automatically.
+  Automatic uses the editable text **Next Order Number** as a global counter
+  only when a new order is successfully saved, then advances it by one. A
+  customer matched by normalized WhatsApp or Mobile gets
+  `newNumber-latestCompleteCustomerOrderNumber`; new customers get just
+  `newNumber`. Large values remain text, cancelled forms reserve nothing,
+  and final duplicate checks prevent repeats. **Previous Sequence Order** is
+  a separate read-only simple-number reference and is never added to a
+  customer-history chain.
 - Dashboard: **date filter (Today default / Tomorrow / Yesterday / Last 7 days /
   Last 30 days / Custom date / Custom range)** drives Total Orders, Total Sales,
   Paid / COD / Pending counts and a **Product Sales** table (Qty sold, order
@@ -311,24 +313,15 @@ After enabling products Night Cream & Face Serum + saving orders:
   (8.347034843E9 → 8347034843) before saving; mobile numbers keep their
   text formatting (`91234 56780`) and are stored separately from WhatsApp
 - New Order page: typing a WhatsApp **or Mobile** number debounce-searches a
-  pre-built index covering the imported history **and** current orders
-  created from it (the order chain), showing **all** matching orders newest
-  first — complete order number (e.g. `14030-11694-9602-4776`), name,
-  address, WhatsApp and Mobile (phones are text identifiers — never
-  scientific notation) — with **[Use Latest Order]** (optional) and
-  **[Use This Order]** per result. Picking one autofills
-  Name/WhatsApp/Mobile/Address/City/State/Pincode/custom fields (fully
-  editable — the historical order is never modified), stores the selection
-  separately as the previous order, and loads the previous order's
-  **complete number into the editable Order Number field with the cursor at
-  the start** — the user types the new number before it
-  (`15000-14030-11694-9602-4776`), so the old chain appears exactly once and
-  continues as `15001-15000-14030-11694-9602-4776` next time (never
-  auto-composed, never doubled). A **Selected Previous Order** summary card
-  offers **Change Order** (re-pick; field gets the new full number) and
-  **Remove** (clears the relation and empties the field for manual entry).
-  Imported chain numbers are never split into a base segment; unknown
-  numbers just show “No previous order found.” — never an error
+  pre-built index covering imported history and current orders, showing full
+  order numbers and customer details. Choosing an item autofills editable
+  customer fields without ever changing historical data. In **Manual** mode,
+  it loads that complete number into the editable Order Number field and
+  preserves the **Selected Previous Order** workflow. In **Automatic** mode,
+  the field is a read-only preview built from the current global counter and
+  the matched customer's latest complete history; selections never alter the
+  counter or choose a history parent. Imported chain numbers remain intact.
+  Unknown numbers simply show “No previous order found.” — never an error
 - **Full Backup & Restore** (Settings → Backup & Restore): export one file —
   `order-manager-backup-YYYY-MM-DD.json` (`backupVersion: 1`) — containing
   every order (order numbers, previous order numbers, previous sequence
@@ -390,8 +383,8 @@ After enabling products Night Cream & Face Serum + saving orders:
 - Download Label saves any order's label as a PDF; Excel downloads use the
   cached order data (mirror of the spreadsheet) — fast, no sheet re-download
 - Settings: business info + logo upload, spreadsheet reconnect/change,
-  manual order numbers (payment/order status defaults only — numbering has
-  no auto settings), label design, export orders CSV/JSON, export/import
+  Manual/Automatic Order Number Mode with text Next Order Number, payment /
+  order status defaults, label design, export orders CSV/JSON, export/import
   settings, reset
 - Offline queue: orders saved locally with a friendly notice, auto-sync when
   the background worker sees the connection again (or press **Sync Now**)

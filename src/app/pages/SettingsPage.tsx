@@ -337,9 +337,15 @@ function OrderTab() {
   const settings = useAppStore((s) => s.settings);
   const [draft, setDraft] = useState({ ...settings.order });
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings.order);
+  const automatic = draft.numberMode === 'automatic';
+  const validNext = /^\d+$/.test(draft.nextOrderNumber.trim());
 
   const save = async () => {
-    await store.persist({ settings: { ...settings, order: draft } });
+    if (automatic && !validNext) {
+      toast('error', 'Next Order Number must contain digits only', { message: 'Use a whole order number such as 15000. It is kept as text, not a decimal.' });
+      return;
+    }
+    await store.persist({ settings: { ...settings, order: { ...draft, nextOrderNumber: draft.nextOrderNumber.trim() } } });
     toast('success', 'Order settings saved');
   };
 
@@ -347,16 +353,33 @@ function OrderTab() {
     <div style={{ maxWidth: 640 }}>
       <Card title="Order numbers" actions={<Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>Save</Button>}>
         <div className="card-pad col" style={{ gap: 12 }}>
-          <div style={{ background: 'var(--primary-soft)', borderRadius: 9, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
-            <b>Manual order numbers.</b> The extension never generates an order number, counter or prefix — on the New Order screen you type the
-            complete order number yourself (e.g. <span className="mono">15000</span> or <span className="mono">15000-14030-11694-9602-4776</span>).
-            Selecting a customer's previous order simply loads its full number into the editable field so you can change the beginning.
-          </div>
+          <Field label="Order Number Mode" hint="Switching modes never changes existing orders.">
+            <Select value={draft.numberMode} onChange={(e) => setDraft({ ...draft, numberMode: e.target.value as Settings['order']['numberMode'] })}>
+              <option value="manual">Manual</option>
+              <option value="automatic">Automatic</option>
+            </Select>
+          </Field>
+
+          {automatic ? (
+            <>
+              <div style={{ background: 'var(--primary-soft)', borderRadius: 9, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
+                <b>Automatic order numbers.</b> The next saved new order uses this global number. After it is saved, the next value increases by one. For a returning customer, their latest complete order number is attached as customer history; Previous Sequence Order remains separate.
+              </div>
+              <Field label="Next Order Number" required error={validNext ? undefined : 'Use digits only, for example 15000.'} hint="You can change this anytime. The value is stored as text, so it never becomes a decimal or scientific notation.">
+                <Input value={draft.nextOrderNumber} inputMode="numeric" autoComplete="off" spellCheck={false} invalid={!validNext} onChange={(e) => setDraft({ ...draft, nextOrderNumber: e.target.value })} placeholder="15000" />
+              </Field>
+            </>
+          ) : (
+            <div style={{ background: 'var(--primary-soft)', borderRadius: 9, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
+              <b>Manual order numbers.</b> Type the complete order number yourself (for example <span className="mono">15000</span> or <span className="mono">15000-14030-11694-9602-4776</span>). Selecting a customer's previous order loads its full number into the editable field; nothing is generated or changed automatically.
+            </div>
+          )}
+
           <div className="form-grid">
-            <Field label="Default payment status"><Select value={draft.defaultPaymentStatus} onChange={(e) => setDraft({ ...draft, defaultPaymentStatus: e.target.value as Settings['order']['defaultPaymentStatus'] })}>{PAYMENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-            <Field label="Default order status"><Select value={draft.defaultOrderStatus} onChange={(e) => setDraft({ ...draft, defaultOrderStatus: e.target.value as Settings['order']['defaultOrderStatus'] })}>{ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+            <Field label="Default payment status"><Select value={draft.defaultPaymentStatus} onChange={(e) => setDraft({ ...draft, defaultPaymentStatus: e.target.value as Settings['order']['defaultPaymentStatus'] })}>{PAYMENT_STATUSES.map((status) => <option key={status}>{status}</option>)}</Select></Field>
+            <Field label="Default order status"><Select value={draft.defaultOrderStatus} onChange={(e) => setDraft({ ...draft, defaultOrderStatus: e.target.value as Settings['order']['defaultOrderStatus'] })}>{ORDER_STATUSES.map((status) => <option key={status}>{status}</option>)}</Select></Field>
           </div>
-          <p className="hint">Duplicates are blocked: an order number that already exists can't be saved twice. When you type a number such as 15000, the screen shows the latest existing order before it as “Previous Sequence Order” — a read-only reference that is never added to your order number.</p>
+          <p className="hint">Duplicates are always blocked. Previous Sequence Order is a read-only reference only and is never added to a customer-history chain.</p>
         </div>
       </Card>
     </div>
