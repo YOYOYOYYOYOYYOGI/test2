@@ -107,7 +107,7 @@ scripts/          make-icons, postbuild, package (zip)
 
 ```bash
 npm run build      # typecheck + Vite UI build + background build + PWA precache
-npm run zip        # build + zip → release/order-label-manager-v1.0.11.zip
+npm run zip        # build + zip → release/order-label-manager-v1.0.12.zip
 # npm run package  # package the already-built dist/ folder
 ```
 
@@ -125,7 +125,7 @@ dist/
 ```
 
 Load `dist/` in Chrome as described above. A ready-to-share ZIP is written to
-`release/order-label-manager-v1.0.11.zip` and copied to the repository root.
+`release/order-label-manager-v1.0.12.zip` and copied to the repository root.
 
 ---
 

@@ -43,7 +43,9 @@ function parseAmount(raw: string): number | null {
   return Number.isFinite(n) ? round2(n) : null;
 }
 
-/** Pure digit strings (order numbers, phones, pincodes) become real numbers. */
+/** Pure digit strings that are numeric data (for example phone/pincode fields)
+ * may become real numbers. Order numbers are identifiers and are always kept
+ * as text before this helper is reached. */
 function digitNumber(raw: string): number | null {
   if (!/^\d+$/.test(raw)) return null;
   if (raw.length > 15) return null; // would exceed Excel numeric precision
@@ -69,10 +71,13 @@ function excelValue(raw: string | number | boolean | undefined | null, field: Or
     const n = parseAmount(s);
     return n !== null ? n : s;
   }
+  // Order identifiers are text, even when made only of digits. This protects
+  // leading zeroes and long automatic values from Excel numeric/scientific
+  // conversion, and keeps every export equal to the saved final number.
+  if (key === 'orderNumber') return s;
   // Order dates are already formatted date text; never coerce them through a timestamp.
   if (key === 'orderDate') return s;
-  // Phones / order numbers / pincodes: "1001" → 1001 (matches the reference
-  // tables); anything with letters or +91 stays text.
+  // Phone/pincode-style numeric identifiers retain the existing export behavior.
   if (/^\+?\d{4,15}$/.test(s.replace(/\s/g, ''))) {
     const n = digitNumber(s.replace(/\s/g, ''));
     if (n !== null) return n;

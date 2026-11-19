@@ -128,7 +128,7 @@ describe('Excel row values', () => {
     expect(row[7]).toBe(0); // Day Cream Qty — zero fill
   });
 
-  it('numeric handling: digit order numbers numeric, formatted amounts parsed, booleans Yes/No', () => {
+  it('keeps digit order numbers as exact text while amounts remain numeric', () => {
     const settings = defaultSettings();
     settings.includedFields = ['f-no', 'f-amt', 'f-box'];
     settings.products = { included: [] };
@@ -139,11 +139,13 @@ describe('Excel row values', () => {
     ];
     const c = ctx({ settings, fields, products: [] });
     const o = order({
-      id: 'o2', orderNumber: '1001',
+      id: 'o2', orderNumber: '0015000',
       customFields: { 'f-amt': '₹1,200', 'f-box': true },
     });
     const row = excelGrid([o], c)[1];
-    expect(row[0]).toBe(1001);
+    // Order numbers are identifiers: preserve leading zeroes and avoid Excel
+    // numeric/scientific conversion. Money remains a real numeric cell.
+    expect(row[0]).toBe('0015000');
     expect(row[1]).toBe(1200);
     expect(row[2]).toBe('Yes');
   });
@@ -213,6 +215,12 @@ describe('real .xlsx bytes', () => {
     expect(text).toContain('Night Cream Qty');
     expect(text).toContain('ORD-1001');
     expect(text).toContain('ORD-1002');
+    // A plain automatic order number is emitted as an inline text cell, not
+    // a numeric Excel cell which could remove zeroes or show scientific text.
+    const textOrder = order({ id: 'o3', orderNumber: '0015000' });
+    const textExport = prepareOrdersExport('all', [textOrder], c, new Date(2026, 8, 7));
+    const textWorkbook = new TextDecoder().decode(new Uint8Array(await textExport.blob.arrayBuffer()));
+    expect(textWorkbook).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">0015000</t>');
   });
 
   it('empty day export reports zero rows but is still a valid workbook', () => {
