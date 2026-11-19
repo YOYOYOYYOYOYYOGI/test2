@@ -6,7 +6,7 @@ import { makeId } from '../lib/constants';
 import { computeTotal } from '../lib/format';
 import { localOrderDate, parseOrderDate } from '../lib/orderDate';
 import { LS, storage } from './storage';
-import { normalizeOrderNumber, normalizePhone } from '../lib/normalizePhone';
+import { normalizeOrderNumber } from '../lib/normalizePhone';
 import { engineForSettings } from './sync';
 import { SpreadsheetEngine, SpreadsheetError, friendlySheetsError } from './spreadsheet/engine';
 import { GoogleAuthError } from './google/oauth';
@@ -136,65 +136,30 @@ export function incrementAutomaticBaseNumber(value: string): string {
   return next.length < raw.length ? next.padStart(raw.length, '0') : next;
 }
 
-function customerPhones(customer: Pick<CustomerData, 'whatsapp' | 'mobile'>): Set<string> {
-  const phones = new Set<string>();
-  for (const raw of [customer.whatsapp, customer.mobile]) {
-    const normalized = normalizePhone(raw ?? '');
-    if (normalized.length >= 10) phones.add(normalized);
-  }
-  return phones;
-}
-
-function sharesCustomerPhone(
-  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
-  candidate: Pick<CustomerData | OldOrderRecord, 'whatsapp' | 'mobile'>,
-): boolean {
-  const target = customerPhones(customer);
-  if (!target.size) return false;
-  for (const raw of [candidate.whatsapp, candidate.mobile]) {
-    const normalized = normalizePhone(raw ?? '');
-    if (target.has(normalized)) return true;
-  }
-  return false;
-}
-
-/**
- * Find the immediate full customer-history parent for an automatically created
- * order. Current orders win because they are the newest live history; imported
- * old records supply the parent only until the customer has a new app order.
- */
-export function latestCustomerOrderNumber(
-  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
-  orders: Order[],
-  oldOrders: OldOrderRecord[],
-): string {
-  const current = orders
-    .filter((order) => sharesCustomerPhone(customer, order.customer))
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
-  if (current) return normalizeOrderNumber(current.orderNumber);
-
-  const historic = oldOrders
-    .filter((record) => sharesCustomerPhone(customer, record))
-    .sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0) || (b.sourceRow ?? 0) - (a.sourceRow ?? 0))[0];
-  return historic ? normalizeOrderNumber(historic.orderNumber) : '';
-}
-
 export interface AutomaticOrderNumber {
   baseNumber: string;
   orderNumber: string;
   previousOrderNumber?: string;
 }
 
-/** Build an automatic final number without reserving or incrementing anything. */
+/**
+ * Build an automatic final number without reserving or incrementing anything.
+ *
+ * Automatic mode deliberately does NOT infer the customer's latest order. A
+ * selected complete previous number is the only history suffix, so the owner
+ * can choose the matching address/order. With no selection the result is the
+ * global base number alone.
+ */
 export function automaticOrderNumberFor(
   nextOrderNumber: string,
-  customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
-  orders: Order[],
-  oldOrders: OldOrderRecord[],
+  _customer: Pick<CustomerData, 'whatsapp' | 'mobile'>,
+  _orders: Order[],
+  _oldOrders: OldOrderRecord[],
+  selectedPreviousOrderNumber?: string | null,
 ): AutomaticOrderNumber {
   const baseNumber = String(nextOrderNumber ?? '').trim();
   if (!isAutomaticBaseNumber(baseNumber)) throw new Error('Set Next Order Number to digits only before saving an automatic order.');
-  const previousOrderNumber = latestCustomerOrderNumber(customer, orders, oldOrders);
+  const previousOrderNumber = normalizeOrderNumber(String(selectedPreviousOrderNumber ?? ''));
   return {
     baseNumber,
     orderNumber: previousOrderNumber ? `${baseNumber}-${previousOrderNumber}` : baseNumber,
@@ -318,11 +283,16 @@ async function createOrderInner(
     if (state.settings.order.numberMode !== 'automatic') {
       return createOrderInner(input, { ...ctx, settings: state.settings }, opts, false);
     }
+    // This is the explicit lookup selection, stored independently from the
+    // editable customer form. Do not re-infer history from edited contact
+    // details: saved source data has already been copied into that form.
+    const selectedPreviousOrderNumber = normalizeOrderNumber(input.previousOrderNumber ?? '');
     const generated = automaticOrderNumberFor(
       state.settings.order.nextOrderNumber,
       input.customer,
       state.orders,
       state.oldOrders,
+      selectedPreviousOrderNumber,
     );
     automaticSourceNext = generated.baseNumber;
     finalInput = {

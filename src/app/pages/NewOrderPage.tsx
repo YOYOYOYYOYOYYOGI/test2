@@ -34,12 +34,14 @@ interface FormState {
   custom: Record<string, string | boolean>;
 }
 
-/** Customer previous order chosen through [Use This Order] — stored
- *  separately from the editable Order Number. */
+/** Customer previous order explicitly selected from the lookup. It is stored
+ * separately from the generated/manual Order Number. */
 interface SelectedPreviousOrder {
   orderNumber: string;
   name: string;
   address: string;
+  whatsapp?: string;
+  mobile?: string;
 }
 
 function emptyForm(settings: Settings, fields: OrderField[]): FormState {
@@ -126,9 +128,9 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   const [saving, setSaving] = useState(false);
   const [matchHits, setMatchHits] = useState<MatchHit[] | null>(null);
   const [savedOrder, setSavedOrder] = useState<Order | null>(null);
-  /** customer previous order chosen via the WhatsApp/Mobile lookup — loaded
-   *  into the editable Order Number field and stored separately as
-   *  previousOrderNumber */
+  /** Explicit customer-history parent chosen from the WhatsApp/Mobile lookup.
+   * Manual mode loads it into the editable field; Automatic mode uses exactly
+   * this full number as its optional generated suffix. */
   const [selectedPrev, setSelectedPrev] = useState<SelectedPreviousOrder | null>(() =>
     editing?.previousOrderNumber
       ? { orderNumber: editing.previousOrderNumber, name: editing.customer.name, address: '' }
@@ -155,16 +157,23 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     }, 0);
   };
 
-  // Automatic mode previews the current global base plus this customer's
-  // latest full history. The service recomputes the same value at save time.
+  // Automatic mode previews the current global base plus the ONE complete
+  // previous order the owner selected. No selection means base number only;
+  // the service recomputes the same result at save time.
   const automaticPreview = useMemo(() => {
     if (!automaticMode) return null;
     try {
-      return automaticOrderNumberFor(settings.order.nextOrderNumber, form.customer, orders, oldOrders);
+      return automaticOrderNumberFor(
+        settings.order.nextOrderNumber,
+        form.customer,
+        orders,
+        oldOrders,
+        selectedPrev?.orderNumber,
+      );
     } catch {
       return null;
     }
-  }, [automaticMode, settings.order.nextOrderNumber, form.customer.whatsapp, form.customer.mobile, orders, oldOrders]);
+  }, [automaticMode, settings.order.nextOrderNumber, form.customer.whatsapp, form.customer.mobile, orders, oldOrders, selectedPrev?.orderNumber]);
 
   useEffect(() => {
     if (!automaticMode || !automaticPreview) return;
@@ -187,12 +196,11 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
     return () => window.clearTimeout(t);
   }, [automaticMode, automaticPreview?.baseNumber, form.orderNumber, orders]);
 
-  /** Autofill the form from a previous-order entry (imported history OR a
-   *  current order in the chain): customer details are copied and the FULL
-   *  order number is loaded into the editable Order Number field so the user
-   *  can edit its beginning (15000-14030-…). Nothing is generated — the user
-   *  controls the final number. The historical/previous order is never
-   *  modified. */
+  /** Select an exact previous-order entry (imported history OR a current
+   * order). Its saved customer details are copied into this editable new form.
+   * Manual mode loads its complete number into the editable number field;
+   * Automatic mode uses this one complete number as its generated suffix.
+   * The historical/current source order is never modified. */
   const applyOldRecord = (entryIn: PreviousOrderEntry) => {
     const entry: PreviousOrderEntry = { ...entryIn };
     const cust = { ...form.customer };
@@ -242,31 +250,33 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
           if (k === 'custom') custom[f.id] = v;
       }
     }
-    // the complete previous order number is loaded into the editable field —
-    // the user edits the beginning to add their new number (15000-…)
     const number = normalizeOrderNumber(entry.orderNumber) || entry.orderNumber;
-    // Only Manual mode has a selected previous-order relationship. Automatic
-    // mode uses the copied phone details to find its own latest full history.
-    setSelectedPrev(automaticMode ? null : { orderNumber: number, name: entry.name || '', address: entry.address || '' });
-    // Manual mode retains the established editable starting-number workflow.
-    // Automatic mode never copies an old number into its counter.
+    // The chosen complete number is the separate history parent in BOTH modes.
+    // In Automatic mode it is the ONLY suffix; it is never expanded/replaced
+    // with another order from the customer's history.
+    setSelectedPrev({
+      orderNumber: number,
+      name: entry.name || '',
+      address: entry.address || '',
+      whatsapp: entry.whatsapp || '',
+      mobile: entry.mobile || '',
+    });
+    // Manual mode retains its editable starting-number workflow. Automatic
+    // mode recomputes its read-only preview from this explicit selection.
     setForm((prev) => ({ ...prev, ...patch, customer: cust, custom, orderNumber: automaticMode ? prev.orderNumber : number }));
     setErrors({});
     if (!automaticMode) focusOrderNumberStart();
   };
 
-  /** Clear the customer previous-order relationship AND empty the editable
-   *  Order Number field — the user types the complete new number (no chain,
-   *  no automatic number). Customer details stay as typed. */
+  /** Clear the explicit customer-history selection. Customer details remain
+   * editable; Automatic mode then previews its bare global number. */
   const removePrevious = () => {
     setSelectedPrev(null);
     if (!automaticMode) setForm((f) => ({ ...f, orderNumber: '' }));
     if (!automaticMode) focusOrderNumberStart();
   };
 
-  /** Drop the current selection so another previous order can be picked; the
-   *  field is emptied until the next [Use This Order] — the old chain is
-   *  never kept. */
+  /** Drop the selection so any other previous order can be picked. */
   const changePrevious = () => {
     setSelectedPrev(null);
     if (!automaticMode) setForm((f) => ({ ...f, orderNumber: '' }));
@@ -296,6 +306,9 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
   }, [sortedFields]);
 
   const set = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); };
+  // A history selection is an explicit, separate reference. Editing any copied
+  // customer field—including either phone—must not silently replace or erase
+  // that reference; the owner controls it with Change Selection / Remove.
   const setCust = (patch: Partial<FormState['customer']>) => setForm((f) => ({ ...f, customer: { ...f.customer, ...patch } }));
 
   const total = useMemo(() => {
@@ -560,7 +573,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
               {orderNoField && (
                 <>
                   <label htmlFor="order-number">Order Number{orderNoField.required && <span className="req">*</span>}</label>
-                  {!automaticMode && selectedPrev && (
+                  {selectedPrev && (
                     <div style={{
                       marginBottom: 8, border: '1px solid var(--primary-border, var(--border-strong))', borderRadius: 9,
                       background: 'var(--primary-soft)', padding: '8px 12px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center',
@@ -574,8 +587,8 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                         {selectedPrev.address && <div className="small muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 420 }}>{selectedPrev.address}</div>}
                       </div>
                       <div className="row" style={{ gap: 6 }}>
-                        <Button size="sm" variant="ghost" title="Choose a different previous order" onClick={changePrevious}>Change Order</Button>
-                        <Button size="sm" variant="ghost" title="Remove the previous order — the Order Number field starts empty" onClick={removePrevious}>Remove</Button>
+                        <Button size="sm" variant="ghost" title="Choose a different previous order" onClick={changePrevious}>{automaticMode ? 'Change Selection' : 'Change Order'}</Button>
+                        <Button size="sm" variant="ghost" title="Remove the selected previous order" onClick={removePrevious}>Remove</Button>
                       </div>
                     </div>
                   )}
@@ -594,8 +607,8 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                   <div className="hint" style={{ marginTop: 4, lineHeight: 1.5 }}>
                     {automaticMode ? (
                       automaticPreview?.previousOrderNumber
-                        ? <>Generated from Next Order Number plus this customer's latest complete order: <span className="mono">{automaticPreview.orderNumber}</span>.</>
-                        : <>Generated from Next Order Number: <span className="mono">{automaticPreview?.orderNumber ?? 'Set a valid Next Order Number'}</span>.</>
+                        ? <>Generated from Next Order Number plus your selected complete previous order: <span className="mono">{automaticPreview.orderNumber}</span>.</>
+                        : <>No previous order selected — generated from Next Order Number only: <span className="mono">{automaticPreview?.orderNumber ?? 'Set a valid Next Order Number'}</span>.</>
                     ) : selectedPrev ? (
                       <>This starts from the selected previous order — <b>edit the beginning</b> to add your new order number (e.g. <span className="mono">15000-{selectedPrev.orderNumber}</span>).</>
                     ) : (
@@ -650,7 +663,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                       invalid={Boolean(errors['customer.whatsapp'])}
                       onChange={(e) => setCust({ whatsapp: e.target.value })} />
                     {isNewFlow && (
-                      <OldOrderLookup phone={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} onPick={applyOldRecord} />
+                      <OldOrderLookup phone={form.customer.whatsapp} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} automaticMode={automaticMode} onPick={applyOldRecord} />
                     )}
                   </Field>
                 )
@@ -660,7 +673,7 @@ export function NewOrderPage({ editId, go }: { editId?: string; go: (r: string) 
                         invalid={Boolean(errors['customer.mobile'])}
                         onChange={(e) => setCust({ mobile: e.target.value })} />
                       {isNewFlow && phoneSearchable(form.customer.mobile) && normalizePhone(form.customer.mobile) !== normalizePhone(form.customer.whatsapp) && (
-                        <OldOrderLookup phone={form.customer.mobile} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} onPick={applyOldRecord} />
+                        <OldOrderLookup phone={form.customer.mobile} records={oldOrders} orders={orders} excludeOrderId={editId} chosenNumber={selectedPrev?.orderNumber ?? null} automaticMode={automaticMode} onPick={applyOldRecord} />
                       )}
                     </Field>
                   )

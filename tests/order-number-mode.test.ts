@@ -51,36 +51,37 @@ describe('order number modes', () => {
     expect(hydrated.settings.order.nextOrderNumber).toBe('1');
   });
 
-  it('automatically chains the complete imported customer history and advances the global text counter after saving', async () => {
+  it('uses only the explicitly selected complete order as automatic history, and advances the global text counter after saving', async () => {
     const conf = settings('automatic', '15000');
-    await storage.setMany({ [LS.settings]: conf, [LS.oldOrders]: [old('7000-3214-1234', '6352808571')] });
+    const history = [old('6000', '6352808571'), old('7000-6000', '6352808571'), old('3214', '6352808571')];
+    await storage.setMany({ [LS.settings]: conf, [LS.oldOrders]: history });
     const ctx = { settings: conf, fields: [], products: [] };
 
-    const first = await createOrder(input('ignored'), ctx, { skipSheet: true });
-    expect(first.ok).toBe(true);
-    expect(first.order).toMatchObject({
-      orderNumber: '15000-7000-3214-1234',
-      previousOrderNumber: '7000-3214-1234',
-    });
+    // Existing matching history does not imply a suffix until the owner selects it.
+    const noSelection = await createOrder(input('ignored'), ctx, { skipSheet: true });
+    expect(noSelection.order).toMatchObject({ orderNumber: '15000', previousOrderNumber: undefined });
     expect((await storage.loadAll()).settings.order.nextOrderNumber).toBe('15001');
 
-    const second = await createOrder(input('ignored again'), ctx, { skipSheet: true });
-    expect(second.ok).toBe(true);
-    expect(second.order).toMatchObject({
-      orderNumber: '15001-15000-7000-3214-1234',
-      previousOrderNumber: '15000-7000-3214-1234',
-    });
-    expect((await storage.loadAll()).settings.order.nextOrderNumber).toBe('15002');
+    // A selected imported order is used verbatim, including an existing chain.
+    const selectedChain = await createOrder({ ...input('ignored'), previousOrderNumber: '7000-6000' }, ctx, { skipSheet: true });
+    expect(selectedChain.order).toMatchObject({ orderNumber: '15001-7000-6000', previousOrderNumber: '7000-6000' });
+
+    // Changing the selection before save changes just the suffix; it never picks
+    // the latest current/imported order or expands all history.
+    const changedSelection = await createOrder({ ...input('ignored'), previousOrderNumber: '3214' }, ctx, { skipSheet: true });
+    expect(changedSelection.order).toMatchObject({ orderNumber: '15002-3214', previousOrderNumber: '3214' });
+    expect((await storage.loadAll()).settings.order.nextOrderNumber).toBe('15003');
+    expect((await storage.loadAll()).oldOrders).toEqual(history);
   });
 
-  it('uses one global counter and keeps Previous Sequence Order separate from a customer chain', async () => {
+  it('keeps Previous Sequence Order separate from an explicitly selected customer chain', async () => {
     const manual = settings('manual', '15000');
     await storage.set(LS.settings, manual);
     await createOrder(input('14999', '9000000001'), { settings: manual, fields: [], products: [] }, { skipSheet: true });
 
     const automatic = settings('automatic', '15000');
     await storage.setMany({ [LS.settings]: automatic, [LS.oldOrders]: [old('7000-3214', '6352808571')] });
-    const created = await createOrder(input('ignored'), { settings: automatic, fields: [], products: [] }, { skipSheet: true });
+    const created = await createOrder({ ...input('ignored'), previousOrderNumber: '7000-3214' }, { settings: automatic, fields: [], products: [] }, { skipSheet: true });
     expect(created.order).toMatchObject({
       orderNumber: '15000-7000-3214',
       previousOrderNumber: '7000-3214',
@@ -92,14 +93,14 @@ describe('order number modes', () => {
     expect(otherCustomer.order?.orderNumber).toBe('15001');
   });
 
-  it('matches history by Mobile Number as well as normalized WhatsApp', async () => {
+  it('persists an explicit previous-order selection found by Mobile Number', async () => {
     const conf = settings('automatic', '15000');
     const imported = old('7000-3214', '6352808571');
     imported.mobile = '91234 56780';
     await storage.setMany({ [LS.settings]: conf, [LS.oldOrders]: [imported] });
     const mobileOnly = input('ignored', '9999999999');
     mobileOnly.customer.mobile = '+91 91234-56780';
-    const created = await createOrder(mobileOnly, { settings: conf, fields: [], products: [] }, { skipSheet: true });
+    const created = await createOrder({ ...mobileOnly, previousOrderNumber: imported.orderNumber }, { settings: conf, fields: [], products: [] }, { skipSheet: true });
     expect(created.order).toMatchObject({
       orderNumber: '15000-7000-3214',
       previousOrderNumber: '7000-3214',

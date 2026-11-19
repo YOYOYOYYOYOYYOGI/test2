@@ -107,7 +107,7 @@ scripts/          make-icons, postbuild, package (zip)
 
 ```bash
 npm run build      # typecheck + Vite UI build + background build + PWA precache
-npm run zip        # build + zip → release/order-label-manager-v1.0.12.zip
+npm run zip        # build + zip → release/order-label-manager-v1.0.13.zip
 # npm run package  # package the already-built dist/ folder
 ```
 
@@ -125,7 +125,7 @@ dist/
 ```
 
 Load `dist/` in Chrome as described above. A ready-to-share ZIP is written to
-`release/order-label-manager-v1.0.12.zip` and copied to the repository root.
+`release/order-label-manager-v1.0.13.zip` and copied to the repository root.
 
 ---
 
@@ -319,8 +319,8 @@ After enabling products Night Cream & Face Serum + saving orders:
   it loads that complete number into the editable Order Number field and
   preserves the **Selected Previous Order** workflow. In **Automatic** mode,
   the field is a read-only preview built from the current global counter and
-  the matched customer's latest complete history; selections never alter the
-  counter or choose a history parent. Imported chain numbers remain intact.
+  the explicitly selected complete history order; selections never alter the
+  counter or the historical source record. Imported chain numbers remain intact.
   Unknown numbers simply show “No previous order found.” — never an error
 - **Full Backup & Restore** (Settings → Backup & Restore): export one file —
   `order-manager-backup-YYYY-MM-DD.json` (`backupVersion: 1`) — containing

@@ -363,7 +363,7 @@ function OrderTab() {
           {automatic ? (
             <>
               <div style={{ background: 'var(--primary-soft)', borderRadius: 9, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
-                <b>Automatic order numbers.</b> The next saved new order uses this global number. After it is saved, the next value increases by one. For a returning customer, their latest complete order number is attached as customer history; Previous Sequence Order remains separate.
+                <b>Automatic order numbers.</b> The next saved new order uses this global number. After it is saved, the next value increases by one. For a returning customer, select one matching previous order to attach its complete number as customer history; without a selection no history is attached. Previous Sequence Order remains separate.
               </div>
               <Field label="Next Order Number" required error={validNext ? undefined : 'Use digits only, for example 15000.'} hint="You can change this anytime. The value is stored as text, so it never becomes a decimal or scientific notation.">
                 <Input value={draft.nextOrderNumber} inputMode="numeric" autoComplete="off" spellCheck={false} invalid={!validNext} onChange={(e) => setDraft({ ...draft, nextOrderNumber: e.target.value })} placeholder="15000" />

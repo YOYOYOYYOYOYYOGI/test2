@@ -342,7 +342,7 @@ describe('New Order page: previous-orders lookup → autofill → manual lead nu
 
       // back to the known number, pick the first old order (file order)
       await setInput('9876543210', '8347034843');
-      const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      const useButtons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Select This Order'));
       expect(useButtons.length).toBe(2);
       await act(async () => { useButtons[0].click(); });
       await act(async () => { await tick(200); });
@@ -422,8 +422,8 @@ describe('New Order page: previous-orders lookup → autofill → manual lead nu
       expect(chainText()).toContain('4673-4312-3542');
       expect(chainText()).toContain('3542');
       expect(chainText()).toContain('recent order');
-      // newest first → first "Use This Order" belongs to the recent order
-      const buttons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      // newest first → first "Select This Order" belongs to the recent order
+      const buttons = Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Select This Order'));
       expect(buttons.length).toBe(3);
       await act(async () => { buttons[0].click(); });
       await act(async () => { await tick(250); });
@@ -697,7 +697,7 @@ describe('New Order chain from a chained historical order + Mobile Number', () =
       expect(text()).not.toContain('Reusable Previous Order');
 
       // pick it → the FULL chain becomes the editable starting content
-      const useButtons = () => Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Use This Order'));
+      const useButtons = () => Array.from(el.querySelectorAll('button')).filter((b) => (b.textContent ?? '').includes('Select This Order'));
       expect(useButtons().length).toBe(1);
       await act(async () => { useButtons()[0].click(); });
       await act(async () => { await tick(300); });

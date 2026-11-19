@@ -52,7 +52,7 @@ beforeEach(async () => {
 });
 
 describe('complete order number workflow', () => {
-  it('saves a first-time order, chains returning customers independently, and writes final text to the spreadsheet row', async () => {
+  it('uses only the selected prior order in Automatic mode and writes the exact final text to the spreadsheet row', async () => {
     const { settings, fields } = automaticSettings('15000');
     const customerA = '6352808571';
     const customerB = '7000000002';
@@ -73,9 +73,9 @@ describe('complete order number workflow', () => {
     expect(first).toMatchObject({ ok: true, synced: true, order: { orderNumber: '15000' } });
     expect((await storage.loadAll()).settings.order.nextOrderNumber).toBe('15001');
 
-    // 2. The same imported customer gets their full historical chain, then
-    // the next current saved chain — never a split or a guessed predecessor.
-    const repeatA = await createOrder(customerOrder(customerA, 'Customer A'), ctx);
+    // 2. Existing matching history is not guessed. The owner explicitly
+    // chooses the desired imported record as the only history parent.
+    const repeatA = await createOrder({ ...customerOrder(customerA, 'Customer A'), previousOrderNumber: '7000-3214-1234' }, ctx);
     expect(repeatA).toMatchObject({
       ok: true,
       order: {
@@ -85,7 +85,8 @@ describe('complete order number workflow', () => {
     });
     expect((await storage.loadAll()).settings.order.nextOrderNumber).toBe('15002');
 
-    const repeatAgainA = await createOrder(customerOrder(customerA, 'Customer A'), ctx);
+    // The owner can instead select a current order as the next parent.
+    const repeatAgainA = await createOrder({ ...customerOrder(customerA, 'Customer A'), previousOrderNumber: '15001-7000-3214-1234' }, ctx);
     expect(repeatAgainA).toMatchObject({
       ok: true,
       order: {
@@ -94,8 +95,8 @@ describe('complete order number workflow', () => {
       },
     });
 
-    // 3. A different imported customer gets only their own history.
-    const repeatB = await createOrder(customerOrder(customerB, 'Customer B'), ctx);
+    // 3. A different customer selection is never mixed with customer A.
+    const repeatB = await createOrder({ ...customerOrder(customerB, 'Customer B'), previousOrderNumber: '8800-4001' }, ctx);
     expect(repeatB).toMatchObject({
       ok: true,
       order: {

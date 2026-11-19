@@ -109,10 +109,10 @@ export function currentOrderToEntry(o: Order): PreviousOrderEntry {
 
 /**
  * The order number an entry contributes when picked as the customer previous
- * order — always its COMPLETE order number. There is no automatic base or
- * counter anymore: the New Order screen loads this full number into the
- * editable Order Number field and the user edits the beginning themselves
- * (15000-14030-…). Returns null only for an empty number.
+ * order — always its COMPLETE order number. In Automatic mode it becomes the
+ * one explicit suffix of the global base; in Manual mode the New Order screen
+ * loads it into the editable number field. Returns null only for an empty
+ * number.
  */
 export function entryChainValue(entry: PreviousOrderEntry, _baseNumber?: string | null | undefined): string | null {
   const orderNumber = normalizeOrderNumber(entry.orderNumber);
